@@ -11,6 +11,7 @@
 			<string>com.stik.StikJIT.enableJIT</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>stikdebug</string>
 				<string>stikjit</string>
 			</array>
 		</dict>

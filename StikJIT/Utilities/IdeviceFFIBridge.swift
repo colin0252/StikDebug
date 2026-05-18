@@ -750,6 +750,10 @@ private enum LocationSimulationState {
     }
 }
 
+enum LocationSimulationCommandQueue {
+    static let shared = DispatchQueue(label: "com.stik.location-sim", qos: .userInitiated)
+}
+
 func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Double, _ pairingFile: String) -> Int32 {
     if let locationSimulation = LocationSimulationState.locationSimulation {
         if let ffiError = location_simulation_set(locationSimulation, latitude, longitude) {

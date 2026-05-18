@@ -20,10 +20,8 @@ struct SettingsView: View {
     @AppStorage("primaryTabSelection") private var tabSelection = TabConfiguration.defaultIDs.first ?? "home"
     
     @State private var isShowingPairingFilePicker = false
-    @State private var showPairingFileMessage = false
     @State private var isImportingFile = false
-    @State private var importProgress: Float = 0.0
-    @State private var pairingStatusMessage: String? = nil
+    @State private var pairingImportMessage: (text: String, isError: Bool)?
     @State private var showDDIConfirmation = false
     @State private var isRedownloadingDDI = false
     @State private var ddiDownloadProgress: Double = 0.0
@@ -86,12 +84,28 @@ struct SettingsView: View {
 
                 // 3) Pairing File
                 Section("Pairing File") {
-                    Button { isShowingPairingFilePicker = true } label: {
+                    Button {
+                        isShowingPairingFilePicker = true
+                    } label: {
                         Label("Import Pairing File", systemImage: "doc.badge.plus")
                     }
-                    if showPairingFileMessage && !isImportingFile {
-                        Label("Imported successfully", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                    .disabled(isImportingFile)
+
+                    if isImportingFile {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Importing pairing file…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let pairingImportMessage {
+                        Label(
+                            pairingImportMessage.text,
+                            systemImage: pairingImportMessage.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(pairingImportMessage.isError ? .red : .green)
                     }
                 }
 
@@ -194,35 +208,24 @@ struct SettingsView: View {
                 guard let url = urls.first else { return }
 
                 let fileManager = FileManager.default
+                isImportingFile = true
+                pairingImportMessage = nil
+
                 do {
                     try PairingFileStore.importFromPicker(url, fileManager: fileManager)
-                    DispatchQueue.main.async {
-                        isImportingFile = true
-                        importProgress = 0.0
-                        pairingStatusMessage = nil
-                        showPairingFileMessage = false
-                    }
-
-                    let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
-                        DispatchQueue.main.async {
-                            if importProgress < 1.0 {
-                                importProgress += 0.05
-                            } else {
-                                timer.invalidate()
-                                isImportingFile = false
-                            }
-                        }
-                    }
-
-                    RunLoop.current.add(progressTimer, forMode: .common)
-                    DispatchQueue.main.async {
-                        startTunnelInBackground()
-                    }
+                    isImportingFile = false
+                    pairingImportMessage = ("Imported successfully", false)
+                    startTunnelInBackground()
+                    schedulePairingStatusDismiss()
                 } catch {
-                    break
+                    isImportingFile = false
+                    pairingImportMessage = ("Import failed: \(error.localizedDescription)", true)
+                    schedulePairingStatusDismiss()
                 }
-            case .failure:
-                break
+            case .failure(let error):
+                isImportingFile = false
+                pairingImportMessage = ("Import failed: \(error.localizedDescription)", true)
+                schedulePairingStatusDismiss()
             }
         }
         .confirmationDialog("Redownload DDI Files?", isPresented: $showDDIConfirmation, titleVisibility: .visible) {
@@ -233,43 +236,6 @@ struct SettingsView: View {
         } message: {
             Text("Existing DDI files will be removed before downloading fresh copies.")
         }
-        .overlay { if isImportingFile { importBusyOverlay } }
-    }
-
-    @ViewBuilder
-    private var importBusyOverlay: some View {
-        Color.black.opacity(0.35).ignoresSafeArea()
-        VStack(spacing: 12) {
-            ProgressView("Processing pairing file…")
-            VStack(spacing: 8) {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(UIColor.tertiarySystemFill))
-                            .frame(height: 8)
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.green)
-                            .frame(width: geometry.size.width * CGFloat(importProgress), height: 8)
-                            .animation(.linear(duration: 0.3), value: importProgress)
-                    }
-                }
-                .frame(height: 8)
-                Text("\(Int(importProgress * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.top, 6)
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-                )
-        )
-        .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 4)
     }
 
     private var versionFooter: String {
@@ -321,6 +287,17 @@ struct SettingsView: View {
             }
         }
         scheduleDDIStatusDismiss()
+    }
+
+    private func schedulePairingStatusDismiss() {
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            await MainActor.run {
+                if !isImportingFile {
+                    pairingImportMessage = nil
+                }
+            }
+        }
     }
     
     private func scheduleDDIStatusDismiss() {

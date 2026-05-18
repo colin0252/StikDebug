@@ -133,24 +133,24 @@ struct HomeView: View {
             }
         }
         .onOpenURL { url in
-            guard let host = url.host() else { return }
+            guard let host = url.host()?.lowercased() else { return }
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             switch host {
             case "enable-jit":
                 var config = JITEnableConfiguration()
-                if let pidStr = components?.queryItems?.first(where: { $0.name == "pid" })?.value, let pid = Int(pidStr) {
+                if let pidStr = queryValue(["pid"], in: components), let pid = Int(pidStr) {
                     config.pid = pid
                 }
-                if let bundleId = components?.queryItems?.first(where: { $0.name == "bundle-id" })?.value {
+                if let bundleId = queryValue(["bundle-id", "bundleID", "bundle_id", "bundleId"], in: components) {
                     config.bundleID = bundleId
                 }
-                if let scriptBase64URL = components?.queryItems?.first(where: { $0.name == "script-data" })?.value?.removingPercentEncoding {
+                if let scriptBase64URL = queryValue(["script-data", "scriptData", "script_data"], in: components)?.removingPercentEncoding {
                     let base64 = base64URLToBase64(scriptBase64URL)
                     if let scriptData = Data(base64Encoded: base64) {
                         config.scriptData = scriptData
                     }
                 }
-                if let scriptName = components?.queryItems?.first(where: { $0.name == "script-name" })?.value {
+                if let scriptName = queryValue(["script-name", "scriptName", "script_name"], in: components) {
                     config.scriptName = scriptName
                 }
                 if config.scriptData == nil, let bundleID = config.bundleID,
@@ -164,7 +164,7 @@ struct HomeView: View {
                     pendingJITEnableConfiguration = config
                 }
             case "kill-process":
-                if let pidStr = components?.queryItems?.first(where: { $0.name == "pid" })?.value, let pid = Int(pidStr) {
+                if let pidStr = queryValue(["pid"], in: components), let pid = Int(pidStr) {
                     pubTunnelConnected = false
                     startTunnelInBackground(showErrorUI: false)
                     DispatchQueue.global(qos: .userInitiated).async {
@@ -182,7 +182,7 @@ struct HomeView: View {
                     }
                 }
             case "launch-app":
-                if let bundleId = components?.queryItems?.first(where: { $0.name == "bundle-id" })?.value {
+                if let bundleId = queryValue(["bundle-id", "bundleID", "bundle_id", "bundleId"], in: components) {
                     HapticFeedbackHelper.trigger()
                     DispatchQueue.global(qos: .userInitiated).async {
                         let _ = JITEnableContext.shared.launchAppWithoutDebug(bundleId, logger: nil)
@@ -241,6 +241,19 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    private func queryValue(_ names: [String], in components: URLComponents?) -> String? {
+        guard let queryItems = components?.queryItems else { return nil }
+        for name in names {
+            if let rawValue = queryItems.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })?.value {
+                let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
+            }
+        }
+        return nil
     }
 
     private func debugFeedbackView(_ feedback: DebugFeedback) -> some View {
