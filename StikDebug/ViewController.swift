@@ -4,7 +4,7 @@ import Foundation
 import CommonCrypto
 import UIKit
 
-// MARK: - AES 加密工具
+// MARK: - AES 加密工具（使用 CCCrypt 重写）
 struct AESHelper {
     static let keyString = "IENNSJFJWKSFJ"
     static let mainKey = Data(keyString.utf8)
@@ -21,23 +21,51 @@ struct AESHelper {
     }
     
     private static func aesCrypt(text: String, keyData: Data, isEncrypt: Bool) -> String {
-        let iv = Data(repeating: UInt8(0), count: 16)
-        var cryptor: CCCryptorRef?
-        let alg = CCAlgorithm(kCCAlgorithmAES128)
-        let pad = CCOption(kCCOptionPKCS7Padding)
-        let mode = kCCModeCBC
+        let iv = Data(repeating: UInt8(0), count: 16) // 全零 IV
+        let options = CCOptions(kCCOptionPKCS7Padding)
+        
         if isEncrypt {
-            let rawData = Data(text.utf8)
-            CCCryptorCreateWithMode(kCCEncrypt, mode, alg, pad, iv, keyData, nil, 0, nil, nil, 0, &cryptor)
-            let up = CCCryptorUpdate(cryptor!, rawData, rawData.count)!
-            let fin = CCCryptorFinal(cryptor!)!
-            return (up+fin).base64EncodedString()
+            guard let inputData = text.data(using: .utf8) else { return "" }
+            var outLength = Int(inputData.count) + kCCBlockSizeAES128
+            var outData = Data(count: outLength)
+            var moved = 0
+            let status = outData.withUnsafeMutableBytes { outBytes in
+                inputData.withUnsafeBytes { inBytes in
+                    CCCrypt(CCOperation(kCCEncrypt),
+                            CCAlgorithm(kCCAlgorithmAES128),
+                            options,
+                            keyData.withUnsafeBytes { $0.baseAddress },
+                            keyData.count,
+                            iv.withUnsafeBytes { $0.baseAddress },
+                            inBytes.baseAddress, inputData.count,
+                            outBytes.baseAddress, outLength,
+                            &moved)
+                }
+            }
+            guard status == kCCSuccess else { return "" }
+            outData.count = moved
+            return outData.base64EncodedString()
         } else {
-            guard let rawData = Data(base64Encoded: text) else { return "解密失败" }
-            CCCryptorCreateWithMode(kCCDecrypt, mode, alg, pad, iv, keyData, nil, 0, nil, nil, 0, &cryptor)
-            let up = CCCryptorUpdate(cryptor!, rawData, rawData.count)!
-            let fin = CCCryptorFinal(cryptor!)!
-            return String(data: up+fin, encoding: .utf8) ?? "解密失败"
+            guard let inputData = Data(base64Encoded: text) else { return "解密失败" }
+            var outLength = Int(inputData.count) + kCCBlockSizeAES128
+            var outData = Data(count: outLength)
+            var moved = 0
+            let status = outData.withUnsafeMutableBytes { outBytes in
+                inputData.withUnsafeBytes { inBytes in
+                    CCCrypt(CCOperation(kCCDecrypt),
+                            CCAlgorithm(kCCAlgorithmAES128),
+                            options,
+                            keyData.withUnsafeBytes { $0.baseAddress },
+                            keyData.count,
+                            iv.withUnsafeBytes { $0.baseAddress },
+                            inBytes.baseAddress, inputData.count,
+                            outBytes.baseAddress, outLength,
+                            &moved)
+                }
+            }
+            guard status == kCCSuccess else { return "解密失败" }
+            outData.count = moved
+            return String(data: outData, encoding: .utf8) ?? "解密失败"
         }
     }
 }
@@ -100,75 +128,89 @@ let hookJS = """
 
 // MARK: - WebView 容器
 struct QRWebView: UIViewRepresentable {
-    @ObservedObject var dm:DataManager
-    var webView = WKWebView(frame: .zero, configuration: {
+    @ObservedObject var dm: DataManager
+    private let webView: WKWebView
+    
+    init(dm: DataManager) {
+        self.dm = dm
         let config = WKWebViewConfiguration()
         config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
         let script = WKUserScript(source: hookJS, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(script)
-        return config
-    }())
+        self.webView = WKWebView(frame: .zero, configuration: config)
+    }
     
     func makeUIView(context: Context) -> WKWebView {
         webView.configuration.userContentController.add(context.coordinator, name: "tokenHook")
-        webView.load(URLRequest(url: URL(string:"https://game.seecoon.com/h5/login.html")!))
+        webView.load(URLRequest(url: URL(string: "https://game.seecoon.com/h5/login.html")!))
         return webView
     }
-    func updateUIView(_ uiView: WKWebView, context: Context){}
-    func makeCoordinator() -> Coordinator { Coordinator(parent:self,dm:dm) }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self, dm: dm)
+    }
     
     class Coordinator: NSObject, WKScriptMessageHandler {
-        let parent:QRWebView
-        let dm:DataManager
-        init(parent:QRWebView,dm:DataManager){
+        let parent: QRWebView
+        let dm: DataManager
+        init(parent: QRWebView, dm: DataManager) {
             self.parent = parent
             self.dm = dm
         }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let jsonStr = message.body as? String, let data = jsonStr.data(using:.utf8) else {return}
-            let dict = try! JSONSerialization.jsonObject(with: data) as! [String:Any]
-            let dataDict = dict["data"] as! [String:Any]
+            guard let jsonStr = message.body as? String,
+                  let data = jsonStr.data(using: .utf8),
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataDict = dict["data"] as? [String: Any],
+                  let openid = dataDict["openid"] as? String,
+                  let token = dataDict["seecoon_token"] as? String,
+                  let quid = dataDict["quid"] as? String,
+                  let refresh = dataDict["refresh_token"] as? String else {
+                return
+            }
             let newAcc = Account(
-                openid: dataDict["openid"] as! String,
-                seecoon_token: dataDict["seecoon_token"] as! String,
-                quid: dataDict["quid"] as! String,
-                refresh_token: dataDict["refresh_token"] as! String,
+                openid: openid,
+                seecoon_token: token,
+                quid: quid,
+                refresh_token: refresh,
                 createTime: Date()
             )
-            dm.saveAccount(acc:newAcc)
-            parent.webView.load(URLRequest(url: URL(string:"https://game.seecoon.com/h5/login.html")!))
+            dm.saveAccount(acc: newAcc)
+            // 重新加载页面继续扫码
+            parent.webView.load(URLRequest(url: URL(string: "https://game.seecoon.com/h5/login.html")!))
         }
     }
 }
 
 // MARK: - A 页面：二维码抓包
 struct QRView: View {
-    @ObservedObject var dm:DataManager
+    @ObservedObject var dm: DataManager
     var body: some View {
-        VStack{
-            QRWebView(dm:dm)
-                .frame(maxWidth:.infinity,maxHeight:.infinity)
+        VStack {
+            QRWebView(dm: dm)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             Text("QQ扫码，在三角洲APP授权，自动抓取Token，可无限批量扫号")
-                .font(.caption).foregroundColor(.gray)
+                .font(.caption)
+                .foregroundColor(.gray)
         }
     }
 }
 
 // MARK: - B 页面：Token 列表
 struct TokenListView: View {
-    @ObservedObject var dm:DataManager
+    @ObservedObject var dm: DataManager
     var body: some View {
-        List(dm.accounts){acc in
-            VStack(alignment:.leading){
-                Text("OpenID:\(acc.openid)")
-                Text("Token:\(acc.seecoon_token)")
-                    .font(.system(size:8))
-                HStack(spacing:10){
-                    Button("复制Token"){
+        List(dm.accounts) { acc in
+            VStack(alignment: .leading) {
+                Text("OpenID: \(acc.openid)")
+                Text("Token: \(acc.seecoon_token)")
+                    .font(.system(size: 8))
+                HStack(spacing: 10) {
+                    Button("复制Token") {
                         UIPasteboard.general.string = acc.seecoon_token
                     }
-                    Button("删除账号",role:.destructive){
-                        dm.deleteAccount(id:acc.id)
+                    Button("删除账号", role: .destructive) {
+                        dm.deleteAccount(id: acc.id)
                     }
                 }
             }
@@ -182,17 +224,18 @@ struct DecryptView: View {
     @State var keyText = ""
     @State var result = ""
     var body: some View {
-        VStack(spacing:12){
-            TextField("粘贴delta.dat密文全部内容",text:$cipherText)
+        VStack(spacing: 12) {
+            TextField("粘贴delta.dat密文全部内容", text: $cipherText)
                 .textFieldStyle(.roundedBorder)
-            TextField("输入解密密钥",text:$keyText)
+            TextField("输入解密密钥", text: $keyText)
                 .textFieldStyle(.roundedBorder)
-            Button("解密"){
+            Button("解密") {
                 result = AESHelper.customDecrypt(base64Str: cipherText, keyStr: keyText)
             }
-            TextEditor(text:$result)
-                .frame(height:220)
-        }.padding()
+            TextEditor(text: $result)
+                .frame(height: 220)
+        }
+        .padding()
     }
 }
 
@@ -202,60 +245,63 @@ struct LoginView: View {
     @State var tipText = ""
     @State var showDecrypt = false
     
-    func checkToken(){
-        let header:[String:String] = [
-            "Authorization":"seecoon_token=\(inputToken)",
-            "User-Agent":"SeecoonGame",
-            "Content-Type":"application/json"
+    func checkToken() {
+        let headers = [
+            "Authorization": "seecoon_token=\(inputToken)",
+            "User-Agent": "SeecoonGame",
+            "Content-Type": "application/json"
         ]
-        var req = URLRequest(url:URL(string:"https://game.seecoon.com/api/user/checkLogin")!)
+        var req = URLRequest(url: URL(string: "https://game.seecoon.com/api/user/checkLogin")!)
         req.httpMethod = "POST"
-        req.allHTTPHeaderFields = header
-        req.httpBody = "{}".data(using:.utf8)
-        URLSession.shared.dataTask(with:req){ data,res,err in
+        req.allHTTPHeaderFields = headers
+        req.httpBody = "{}".data(using: .utf8)
+        URLSession.shared.dataTask(with: req) { data, _, _ in
             DispatchQueue.main.async {
-                if let d = data,let json = try? JSONSerialization.jsonObject(with:d) as? [String:Any]{
-                    let valid = json["data"] as? Bool ?? false
-                    tipText = valid ? "✅ Token有效，可以一键登录" : "❌ Token失效"
-                }else{
+                guard let d = data,
+                      let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                      let valid = json["data"] as? Bool else {
                     tipText = "网络异常"
+                    return
                 }
+                tipText = valid ? "✅ Token有效，可以一键登录" : "❌ Token失效"
             }
         }.resume()
     }
     
-    func openGame(){
-        guard let url = URL(string:"seecoon://login?token=\(inputToken)") else {return}
+    func openGame() {
+        guard let url = URL(string: "seecoon://login?token=\(inputToken)") else { return }
         UIApplication.shared.open(url)
     }
     
     var body: some View {
-        VStack(spacing:15){
-            TextField("粘贴seecoon_token",text:$inputToken)
+        VStack(spacing: 15) {
+            TextField("粘贴seecoon_token", text: $inputToken)
                 .textFieldStyle(.roundedBorder)
                 .padding(.horizontal)
-            Button("检测Token有效性",action:checkToken)
+            Button("检测Token有效性", action: checkToken)
             Text(tipText)
-            Button("唤起三角洲一键登录",action:openGame)
+            Button("唤起三角洲一键登录", action: openGame)
                 .disabled(!tipText.contains("✅"))
                 .buttonStyle(.borderedProminent)
-            Button("🔐 密文解密工具"){
+            Button("🔐 密文解密工具") {
                 showDecrypt = true
             }
             Spacer()
         }
-        .sheet(isPresented:$showDecrypt){ DecryptView() }
+        .sheet(isPresented: $showDecrypt) {
+            DecryptView()
+        }
         .padding()
     }
 }
 
-// MARK: - 主视图（由外部的 App.swift 启动）
+// MARK: - 主视图（由 App.swift 启动）
 struct DeltaTokenMainView: View {
     @StateObject var dm = DataManager()
     @State var tabIndex = 0
     var body: some View {
-        VStack(spacing:0) {
-            HStack(spacing:0) {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
                 Button("A扫码抓包") { tabIndex = 0 }
                     .frame(maxWidth: .infinity)
                 Button("B查看Token") { tabIndex = 1 }
@@ -265,9 +311,13 @@ struct DeltaTokenMainView: View {
             }
             .padding(.vertical, 8)
             Divider()
-            if tabIndex == 0 { QRView(dm: dm) }
-            else if tabIndex == 1 { TokenListView(dm: dm) }
-            else { LoginView() }
+            if tabIndex == 0 {
+                QRView(dm: dm)
+            } else if tabIndex == 1 {
+                TokenListView(dm: dm)
+            } else {
+                LoginView()
+            }
         }
     }
 }
