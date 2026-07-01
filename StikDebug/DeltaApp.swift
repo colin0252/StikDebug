@@ -52,7 +52,7 @@ struct Account: Codable, Identifiable {
     let createTime: Date
 }
 
-//全局数据存储（永久加密写入硬盘，读取自动解密）
+//全局数据存储
 class DataManager: ObservableObject {
     @Published var accounts: [Account] = []
     var docPath: URL {
@@ -60,7 +60,6 @@ class DataManager: ObservableObject {
     }
     init(){ loadAccounts() }
     
-    //新增账号，自动加密存储
     func saveAccount(acc:Account){
         accounts.append(acc)
         let json = try! JSONEncoder().encode(accounts)
@@ -68,7 +67,6 @@ class DataManager: ObservableObject {
         try! cipherText.write(to:docPath,atomically:true,encoding:.utf8)
     }
     
-    //读取文件自动解密到内存，硬盘不会明文
     func loadAccounts(){
         if FileManager.default.fileExists(atPath: docPath.path){
             let cipherText = try! String(contentsOf: docPath)
@@ -143,10 +141,10 @@ struct HomeView: View {
     }
 }
 
-//A页面：横屏扫码，抓到token加密保存，立刻刷新二维码，全程不跳转任何软件
+//A页面：横屏扫码，抓到token加密保存，立刻刷新二维码
 struct ScanLoginView: View {
     @ObservedObject var dm: DataManager
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.presentationMode) var presentationMode  // ✅ iOS 13+ 兼容
     @State var qrImage: UIImage = UIImage()
     @State var sessionId: String = ""
     @State var timer: Timer? = nil
@@ -165,12 +163,9 @@ struct ScanLoginView: View {
             URLSession.shared.dataTask(with: url) { data,_,_ in
                 guard let data = data else { return }
                 let obj = try! JSONSerialization.jsonObject(with: data) as! [String:Any]
-                //识别到扫码成功
                 if let resData = obj["data"] as? [String:Any] {
                     DispatchQueue.main.async {
-                        //加密存入本地，不会打开三角洲
                         let newAcc = Account(
-                            id: UUID(),
                             openid: resData["openid"] as! String,
                             seecoon_token: resData["seecoon_token"] as! String,
                             quid: resData["quid"] as! String,
@@ -178,7 +173,6 @@ struct ScanLoginView: View {
                             createTime: Date()
                         )
                         dm.saveAccount(acc: newAcc)
-                        //直接刷新二维码，无限扫号
                         createNewSession()
                     }
                 }
@@ -188,12 +182,13 @@ struct ScanLoginView: View {
     
     var body: some View {
         HStack(spacing:0) {
-            //左侧文字区域
             VStack(spacing:40) {
                 HStack {
-                    Button("关闭") { dismiss() }
-                        .foregroundColor(Color.blue)
-                        .font(.title3)
+                    Button("关闭") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                    .foregroundColor(Color.blue)
+                    .font(.title3)
                     Spacer()
                 }
                 Spacer()
@@ -211,7 +206,6 @@ struct ScanLoginView: View {
             }
             .padding(.leading,30)
             
-            //右侧二维码区域
             VStack{
                 Spacer()
                 Image(uiImage: qrImage)
@@ -227,7 +221,6 @@ struct ScanLoginView: View {
         .onDisappear {
             timer?.invalidate()
         }
-        //进入强制横屏，退出恢复竖屏
         .onAppear{
             UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
         }
@@ -238,14 +231,17 @@ struct ScanLoginView: View {
     }
 }
 
-//B页面：内存自动解密展示账号，硬盘全程密文存储
+//B页面：账号列表
 struct AccountListView: View {
     @ObservedObject var dm: DataManager
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.presentationMode) var presentationMode  // ✅ iOS 13+ 兼容
+    
     var body: some View {
         VStack {
             HStack {
-                Button("← 返回首页") { dismiss() }
+                Button("← 返回首页") {
+                    presentationMode.wrappedValue.dismiss()
+                }
                 Spacer()
             }.padding()
             List(dm.accounts) { acc in
@@ -257,11 +253,10 @@ struct AccountListView: View {
                         Button("复制Token") {
                             UIPasteboard.general.string = acc.seecoon_token
                         }
-                        // ✅ 修复 iOS 14 兼容性：移除 role 参数，手动设置红色
                         Button("删除账号") {
                             dm.deleteAccount(id: acc.id)
                         }
-                        .foregroundColor(.red)
+                        .foregroundColor(.red)  // ✅ iOS 14 兼容，手动红色
                     }
                 }
             }
@@ -269,9 +264,9 @@ struct AccountListView: View {
     }
 }
 
-//C页面：唯一唤起三角洲的地方，输入token校验，登录按钮拉起游戏
+//C页面：Token登录与解密
 struct TokenLoginView: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.presentationMode) var presentationMode  // ✅ iOS 13+ 兼容
     @State var inputToken = ""
     @State var tips = ""
     @State var showDecryptSheet = false
@@ -313,7 +308,6 @@ struct TokenLoginView: View {
         }.resume()
     }
     
-    //整个软件唯一唤起三角洲的代码，只在这里生效
     func launchGame() {
         UIApplication.shared.open(URL(string:"seecoon://login?token=\(inputToken)")!)
     }
@@ -350,6 +344,7 @@ struct TokenLoginView: View {
                 TextField("粘贴delta.dat全部密文内容", text:$cipherStr)
                     .textFieldStyle(.roundedBorder)
                 TextField("输入解密密钥", text:$keyStr)
+                    .textFieldStyle(.roundedBorder)
                 Button("解密") {
                     decryptResult = AESHelper.customDecrypt(base64Str: cipherStr, keyStr: keyStr)
                 }
