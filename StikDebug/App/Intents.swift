@@ -1,305 +1,77 @@
-import AppIntents
-import Foundation
+import UIKit
+import CoreImage.CIFilterBuiltins
+import Network
 
-// MARK: - Installed App Entity
+class ViewController: UIViewController {
+    var listener: NWListener!
+    var sceneID: String = ""
+    var timer: Timer?
+    let qrImageView = UIImageView()
+    let tipLabel = UILabel()
 
-struct InstalledAppEntity: AppEntity {
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(
-        name: "Installed App",
-        numericFormat: "\(placeholder: .int) apps"
-    )
-    static var defaultQuery = InstalledAppQuery()
-
-    var id: String // bundle ID
-    var displayName: String
-
-    var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(displayName)", subtitle: "\(id)")
-    }
-}
-
-struct InstalledAppQuery: EntityStringQuery {
-    func entities(for identifiers: [String]) async throws -> [InstalledAppEntity] {
-        let allApps = (try? JITEnableContext.shared.getAppList()) ?? [:]
-        return identifiers.compactMap { bundleID in
-            guard let name = allApps[bundleID] else { return nil }
-            return InstalledAppEntity(id: bundleID, displayName: name)
-        }
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .white
+        setupUI()
+        openUDP()
+        refreshCode()
+        timer = Timer.scheduledTimer(timeInterval: 25, target: self, selector: #selector(refreshCode), repeats: true)
     }
 
-    func entities(matching string: String) async throws -> [InstalledAppEntity] {
-        let all = try await suggestedEntities()
-        guard !string.isEmpty else { return all }
-        let lower = string.lowercased()
-        return all.filter {
-            $0.displayName.lowercased().contains(lower) ||
-            $0.id.lowercased().contains(lower)
-        }
+    func setupUI() {
+        qrImageView.frame = CGRect(x: 40, y: 120, width: 300, height: 300)
+        qrImageView.contentMode = .scaleAspectFit
+        view.addSubview(qrImageView)
+        tipLabel.frame = CGRect(x: 20, y: 440, width: 340, height: 40)
+        tipLabel.textAlignment = .center
+        tipLabel.text = "转发二维码QQ识别，获取账号"
+        view.addSubview(tipLabel)
     }
 
-    func suggestedEntities() async throws -> [InstalledAppEntity] {
-        await ensureTunnel()
-        let allApps = (try? JITEnableContext.shared.getAppList()) ?? [:]
-        return allApps.map { InstalledAppEntity(id: $0.key, displayName: $0.value) }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-    }
-}
-
-// MARK: - Running Process Entity
-
-struct RunningProcessEntity: AppEntity {
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(
-        name: "Running Process",
-        numericFormat: "\(placeholder: .int) processes"
-    )
-    static var defaultQuery = RunningProcessQuery()
-
-    // Use a stable identifier (bundleID or name) so the entity survives PID changes
-    var id: String
-    var pid: Int
-    var displayName: String
-    var bundleID: String?
-
-    var displayRepresentation: DisplayRepresentation {
-        let subtitle: String
-        if let bundleID, !bundleID.isEmpty {
-            subtitle = "\(bundleID) — PID \(pid)"
-        } else {
-            subtitle = "PID \(pid)"
-        }
-        return DisplayRepresentation(title: "\(displayName)", subtitle: "\(subtitle)")
+    @objc func refreshCode() {
+        sceneID = UUID().uuidString
+        let content = "delta_scene|\(sceneID)"
+        qrImageView.image = createQR(text: content)
     }
 
-    /// Resolve the current PID for this process by re-fetching the process list.
-    func resolveCurrentPID() -> Int? {
-        var err: NSError?
-        let entries = ProcessInfoEntry.currentEntries(&err)
-        for item in entries {
-            // Match by bundle ID first (most stable), then by name
-            if let myBundle = bundleID, !myBundle.isEmpty, item.bundleID == myBundle {
-                return item.pid
-            }
-            if item.displayName == displayName {
-                return item.pid
-            }
-        }
-        return nil
-    }
-}
-
-struct RunningProcessQuery: EntityStringQuery {
-    func entities(for identifiers: [String]) async throws -> [RunningProcessEntity] {
-        // Always fetch fresh so PIDs are current
-        await ensureTunnel()
-        let all = try fetchProcessEntities()
-        let idSet = Set(identifiers)
-        return all.filter { idSet.contains($0.id) }
-    }
-
-    func entities(matching string: String) async throws -> [RunningProcessEntity] {
-        let all = try await suggestedEntities()
-        guard !string.isEmpty else { return all }
-        let lower = string.lowercased()
-        return all.filter {
-            $0.displayName.lowercased().contains(lower) ||
-            ($0.bundleID?.lowercased().contains(lower) ?? false) ||
-            "\($0.pid)".contains(string)
-        }
-    }
-
-    func suggestedEntities() async throws -> [RunningProcessEntity] {
-        await ensureTunnel()
-        return try fetchProcessEntities()
-    }
-
-    private func fetchProcessEntities() throws -> [RunningProcessEntity] {
-        var err: NSError?
-        let entries = ProcessInfoEntry.currentEntries(&err)
-        if let err { throw err }
-
-        return entries.map { entry in
-            RunningProcessEntity(
-                id: entry.stableIdentifier,
-                pid: entry.pid,
-                displayName: entry.displayName,
-                bundleID: entry.bundleID
-            )
-        }
-        .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-    }
-}
-
-// MARK: - Enable JIT Intent
-
-struct EnableJITIntent: AppIntent, ForegroundContinuableIntent {
-    static var title: LocalizedStringResource = "Enable JIT"
-    static var description = IntentDescription(
-        "Enables JIT compilation for an installed app using StikDebug.",
-        categoryName: "StikDebug"
-    )
-    static var openAppWhenRun: Bool = true
-
-    @Parameter(title: "App", description: "The app to enable JIT for",
-               requestValueDialog: "Which app would you like to enable JIT for?")
-    var app: InstalledAppEntity?
-
-    static var parameterSummary: some ParameterSummary {
-        Summary("Enable JIT for \(\.$app)")
-    }
-
-    func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        guard let bundleID = app?.id else {
-            return .result(value: "Select an app to enable JIT for.")
-        }
-
-        await ensureTunnel()
-
-        var scriptData: Data? = nil
-        var scriptName: String? = nil
-        if let preferred = ScriptStore.preferredScript(for: bundleID) {
-            scriptData = preferred.data
-            scriptName = preferred.name
-        }
-
-        var callback: DebugAppCallback? = nil
-        if ProcessInfo.processInfo.hasTXM, let sd = scriptData {
-            let name = scriptName ?? bundleID
-            callback = { pid, debugProxyHandle, remoteServerHandle, semaphore in
-                let model = RunJSViewModel(
-                    pid: Int(pid),
-                    debugProxy: debugProxyHandle,
-                    remoteServer: remoteServerHandle,
-                    semaphore: semaphore
-                )
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .intentJSScriptReady,
-                        object: nil,
-                        userInfo: ["model": model, "scriptData": sd, "scriptName": name]
-                    )
-                }
-                do { try model.runScript(data: sd, name: name) }
-                catch {
-                    semaphore.signal()
-                    LogManager.shared.addErrorLog("Script error: \(error.localizedDescription)")
+    func openUDP() {
+        let udp = NWParameters.udp
+        listener = try! NWListener(using: udp, on: NWEndpoint.Port(rawValue: 16688)!)
+        listener.stateUpdateHandler = { state in
+            if state == .ready {
+                self.listener.newConnectionHandler = { conn in
+                    conn.start(queue: .global())
+                    conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
+                        guard let data = data, let msg = String(data: data, encoding: .utf8) else { return }
+                        let arr = msg.components(separatedBy: "|")
+                        if arr.count >= 3, arr[0] == self.sceneID {
+                            let tk = arr[1]
+                            let ck = arr[2]
+                            DispatchQueue.main.async {
+                                self.tipLabel.text = "获取账号成功，自动存入二号账号仓库"
+                                self.qrImageView.image = self.createQR(text: "SUCCESS")
+                                self.sendToAccountBox(token: tk, cookie: ck)
+                                self.timer?.invalidate()
+                            }
+                        }
+                    }
                 }
             }
         }
-
-        let logger: LogFunc = { message in
-            if let message { LogManager.shared.addInfoLog(message) }
-        }
-
-        let target = app?.displayName ?? bundleID
-        let success = JITEnableContext.shared.debugApp(withBundleID: bundleID, logger: logger, jsCallback: callback)
-
-        if success {
-            LogManager.shared.addInfoLog("JIT enabled for \(target) via Shortcut")
-            return .result(value: "Successfully enabled JIT for \(target).")
-        } else {
-            LogManager.shared.addErrorLog("Failed to enable JIT for \(target) via Shortcut")
-            return .result(value: "Failed to enable JIT for \(target).")
-        }
-    }
-}
-
-// MARK: - Kill Process Intent
-
-struct KillProcessIntent: AppIntent {
-    static var title: LocalizedStringResource = "Kill Process"
-    static var description = IntentDescription(
-        "Terminates a running process on the device using StikDebug.",
-        categoryName: "StikDebug"
-    )
-    static var openAppWhenRun: Bool = false
-
-    @Parameter(title: "Process", description: "The process to terminate",
-               requestValueDialog: "Which process would you like to kill?")
-    var process: RunningProcessEntity?
-
-    @Parameter(title: "Process ID", description: "A specific PID to kill instead of selecting a process")
-    var pid: Int?
-
-    static var parameterSummary: some ParameterSummary {
-        Summary("Kill \(\.$process)")
+        listener.start(queue: .global())
     }
 
-    func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let targetPID: Int
-        let targetName: String
-
-        if let pid {
-            targetPID = pid
-            targetName = "PID \(pid)"
-            await ensureTunnel()
-        } else if let process {
-            await ensureTunnel()
-
-            // Always re-resolve to get the current PID — the stored one may be stale
-            guard let resolved = process.resolveCurrentPID() else {
-                return .result(value: "\(process.displayName) is no longer running.")
-            }
-            targetPID = resolved
-            targetName = process.displayName
-        } else {
-            return .result(value: "Select a process or provide a PID.")
-        }
-
-        var err: NSError?
-        let success = KillDeviceProcess(Int32(targetPID), &err)
-
-        if success {
-            LogManager.shared.addInfoLog("Killed \(targetName) via Shortcut")
-            return .result(value: "Successfully killed \(targetName).")
-        } else {
-            let reason = err?.localizedDescription ?? "Unknown error"
-            LogManager.shared.addErrorLog("Failed to kill \(targetName) via Shortcut: \(reason)")
-            return .result(value: "Failed to kill \(targetName): \(reason)")
-        }
+    func sendToAccountBox(token: String, cookie: String) {
+        let sendData = "new_account|\(token)|\(cookie)"
+        let conn = NWConnection(to: .init(hostname: "127.0.0.1", port: 16688), using: NWParameters.udp)
+        conn.start(queue: .global())
+        conn.send(content: sendData.data(using: .utf8), completion: .contentProcessed({ _ in }))
     }
-}
 
-// MARK: - Shortcuts Provider
-
-struct StikDebugShortcuts: AppShortcutsProvider {
-    static var appShortcuts: [AppShortcut] {
-        AppShortcut(
-            intent: EnableJITIntent(),
-            phrases: [
-                "Enable JIT for \(\.$app) with \(.applicationName)",
-                "Enable JIT for \(\.$app) using \(.applicationName)",
-                "Enable JIT for \(\.$app) in \(.applicationName)",
-                "\(.applicationName) enable JIT for \(\.$app)",
-                "\(.applicationName) enable JIT",
-                "Use \(.applicationName) to enable JIT for \(\.$app)",
-                "Use \(.applicationName) to enable JIT"
-            ],
-            shortTitle: "Enable JIT",
-            systemImageName: "bolt.fill"
-        )
-        AppShortcut(
-            intent: KillProcessIntent(),
-            phrases: [
-                "Kill \(\.$process) with \(.applicationName)",
-                "Kill \(\.$process) using \(.applicationName)",
-                "Kill \(\.$process) in \(.applicationName)",
-                "\(.applicationName) kill \(\.$process)",
-                "\(.applicationName) kill process",
-                "Use \(.applicationName) to kill \(\.$process)",
-                "Use \(.applicationName) to stop \(\.$process)"
-            ],
-            shortTitle: "Kill Process",
-            systemImageName: "xmark.circle.fill"
-        )
+    func createQR(text: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(text.data(using: .utf8), forKey: "inputMessage")
+        guard let img = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 9, y: 9)) else { return nil }
+        return UIImage(ciImage: img)
     }
-}
-
-// MARK: - Shared Tunnel Helper
-
-func ensureTunnel() async {
-    await MainActor.run {
-        markTunnelDisconnected()
-        startTunnelInBackground(showErrorUI: false)
-    }
-    try? await Task.sleep(nanoseconds: 1_000_000_000)
 }
