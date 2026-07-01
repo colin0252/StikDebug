@@ -1,10 +1,66 @@
-<key>NSAppTransportSecurity</key>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
 <dict>
-    <key>NSAllowsArbitraryLoads</key>
+    <!-- 基本应用配置 -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
     <true/>
+    
+    <!-- ⭐ 网络权限说明（iOS 14+ 必需） -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>需要网络权限检查Token有效性并接收登录回调</string>
+    
+    <!-- ⭐ 允许 HTTP 请求（游戏 API 使用 HTTP） -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+    
+    <!-- ⭐ URL Scheme 白名单（QQ 和 三角洲游戏） -->
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>mqqapi</string>
+        <string>seecoon</string>
+    </array>
+    
+    <!-- SwiftUI 场景配置 -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+    </dict>
+    
+    <!-- 启动屏幕（空） -->
+    <key>UILaunchScreen</key>
+    <dict/>
+    
+    <!-- 设备要求 -->
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>armv7</string>
+    </array>
+    
+    <!-- 支持的方向 -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
 </dict>
-<key>LSApplicationQueriesSchemes</key>
-<array>
-<string>seecoon</string>
-<string>mqqapi</string>
-</array>
+</plist>
