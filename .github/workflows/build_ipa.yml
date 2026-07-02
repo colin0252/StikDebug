@@ -1,76 +1,97 @@
-name: Build Unsigned IPA
-
+name: 手动打包IPA
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
-
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: 拉取源码
+        uses: actions/checkout@v6
 
-      - name: Ensure Info.plist exists
+      - name: 补全BundleID，绕过Xcode16报错
         run: |
-          PLIST_PATH="StikDebug/Info.plist"
-          if [ ! -f "$PLIST_PATH" ] || ! grep -q "CFBundleIdentifier" "$PLIST_PATH"; then
-            echo "Generating Info.plist..."
-            cat > "$PLIST_PATH" << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleIdentifier</key>
-              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleExecutable</key>
-              <string>$(EXECUTABLE_NAME)</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>UILaunchStoryboardName</key>
-              <string>LaunchScreen</string>
-              <key>UISupportedInterfaceOrientations</key>
-              <array>
-                  <string>UIInterfaceOrientationPortrait</string>
-              </array>
-          </dict>
-          </plist>
-          EOF
-          fi
+          git config --global user.name ci
+          git config --global user.email ci@localhost
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.stikdebug.app" StikDebug/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.stikdebug.app" StikDebug/Info.plist
+          git add StikDebug/Info.plist
+          git commit -m "fix"
 
-      - name: Archive
+      - name: 自动生成权限文件entitlements.plist
         run: |
+          cat > entitlements.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.backgroundtaskmanagement.allow-background-processing</key>
+    <true/>
+    <key>com.apple.coretelephony.callmanagement</key>
+    <true/>
+    <key>com.apple.voip.background-socket</key>
+    <true/>
+    <key>com.apple.network.multipath</key>
+    <true/>
+    <key>com.apple.private.network.socket-delegate</key>
+    <true/>
+    <key>com.apple.uikit.background.fetch-unlimited</key>
+    <true/>
+    <key>com.apple.tccd.pasteboard-read-unrestricted</key>
+    <true/>
+    <key>com.apple.springboard.continuous-background-task</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+      - name: 生成导出配置文件
+        run: |
+          cat > ExportOptions.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>debugging</string>
+    <key>signingStyle</key>
+    <string></string>
+    <key>compileBitcode</key>
+    <false/>
+    <key>stripSwiftSymbols</key>
+    <false/>
+    <key>thinning</key>
+    <string>none</string>
+    <key>provisioningProfiles</key>
+    <dict/>
+</dict>
+</plist>
+EOF
+
+      - name: 打包归档（注入权限，禁止关闭签名，杜绝空包）
+        run: |
+          mkdir build
           xcodebuild archive \
-            -project StikDebug.xcodeproj \
-            -scheme StikDebug \
-            -archivePath build/StikDebug.xcarchive \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            PRODUCT_BUNDLE_IDENTIFIER=com.stikdebug.app
+          -project StikDebug.xcodeproj \
+          -scheme StikDebug \
+          -configuration Release \
+          -destination generic/platform=iOS \
+          -archivePath build/StikDebug.xcarchive \
+          CODE_SIGN_ENTITLEMENTS=entitlements.plist \
+          SKIP_VALIDATION=YES \
+          IPHONEOS_DEPLOYMENT_TARGET=16.0
 
-      # 💡 手动打包 IPA（跳过 exportArchive，绝对可靠）
-      - name: Package unsigned IPA
+      - name: 导出无签名纯净IPA
         run: |
-          # 从 xcarchive 里提取 .app
-          APP_PATH="build/StikDebug.xcarchive/Products/Applications/StikDebug.app"
-          # 创建 Payload 目录并复制 .app
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-          # 打包成 IPA（zip 格式）
-          zip -r StikDebug.ipa Payload
-          # 移到 build 目录以便上传
-          mv StikDebug.ipa build/
+          xcodebuild -exportArchive \
+          -archivePath build/StikDebug.xcarchive \
+          -exportPath build \
+          -exportOptionsPlist ExportOptions.plist
 
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
+      - name: 上传成品文件
+        uses: actions/upload-artifact@v7
         with:
-          name: StikDebug-unsigned.ipa
-          path: build/StikDebug.ipa
+          name: StikDebug收号器
+          path: build/*.ipa
