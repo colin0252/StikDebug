@@ -20,12 +20,15 @@ struct QQConfig {
     }
 }
 
-// MARK: - AppDelegate
+// MARK: - AppDelegate（动态控制屏幕方向）
 class AppDelegate: NSObject, UIApplicationDelegate {
-    static var orientationLock = UIInterfaceOrientationMask.landscapeRight
+    // ✅ 默认竖屏，可动态切换
+    static var orientationLock = UIInterfaceOrientationMask.portrait
+    
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         return AppDelegate.orientationLock
     }
+    
     func application(_ application: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
         return QQAuthManager.shared.handleCallback(url: url)
     }
@@ -150,7 +153,7 @@ struct QQAuthView: View {
             VStack(spacing: 20) {
                 if let qrImage = qrImage {
                     Image(uiImage: qrImage).resizable().scaledToFit().frame(width: 250, height: 250)
-                    Text("请使用 QQ 扫描此二维码").foregroundColor(.white)
+                    Text("请使用 QQ 扫描此二维码").foregroundColor(.black)
                 } else {
                     ProgressView("生成二维码中...")
                 }
@@ -160,7 +163,7 @@ struct QQAuthView: View {
                 }
             }
             .padding()
-            .background(Color.black.ignoresSafeArea())
+            .background(Color.white.ignoresSafeArea())
             .onAppear {
                 if let url = authManager.startAuth() {
                     qrImage = QRGenerator.createQRCode(text: url.absoluteString)
@@ -174,22 +177,37 @@ struct QQAuthView: View {
     }
 }
 
-// MARK: - 主界面
+// MARK: - 主界面（✅ 竖屏，白底）
 struct HomeView: View {
     @Binding var currentPage: AppPage
     @State private var showQQAuth = false
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.white.ignoresSafeArea()
             VStack(spacing: 35) {
+                Text("三角洲行动助手")
+                    .font(.largeTitle).bold()
+                    .foregroundColor(.black)
+                
                 Button("QQ 扫码登录获取 Token") { showQQAuth = true }
-                    .font(.title2).padding().background(Color.orange).foregroundColor(.white).cornerRadius(14)
+                    .font(.title2).padding()
+                    .background(Color.orange).foregroundColor(.white).cornerRadius(14)
+                
                 Button("账号库存") { currentPage = .accountList }
-                    .font(.title2).padding().background(Color.green).foregroundColor(.white).cornerRadius(14)
+                    .font(.title2).padding()
+                    .background(Color.green).foregroundColor(.white).cornerRadius(14)
+                
                 Button("Token 校验 + 一键上号") { currentPage = .tokenCheck }
-                    .font(.title2).padding().background(Color.blue).foregroundColor(.white).cornerRadius(14)
+                    .font(.title2).padding()
+                    .background(Color.blue).foregroundColor(.white).cornerRadius(14)
             }
+        }
+        .onAppear {
+            // ✅ 进入主页强制竖屏
+            AppDelegate.orientationLock = .portrait
+            UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+            UIViewController.attemptRotationToDeviceOrientation()
         }
         .sheet(isPresented: $showQQAuth) {
             QQAuthView(isPresented: $showQQAuth).environmentObject(DataManager())
@@ -197,35 +215,196 @@ struct HomeView: View {
     }
 }
 
-// MARK: - 账号库存页面
-struct PageB: View {
+// MARK: - 挂机收号页面（✅ 强制横屏，白底）
+struct PageA: View {
     @EnvironmentObject var manager: DataManager
     @Binding var currentPage: AppPage
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            VStack {
-                HStack {
-                    Button("返回") { currentPage = .home }.foregroundColor(.blue)
-                    Spacer()
-                }.padding()
-                Text("账号库存").foregroundColor(.white).font(.title)
-                List(manager.accounts) { acc in
-                    VStack(alignment: .leading) {
-                        Text("OpenID: \(acc.openid)").foregroundColor(.white)
-                        Text("Token: \(acc.seecoon_token)").font(.system(size: 9)).foregroundColor(.white)
-                        HStack {
-                            Button("复制") { UIPasteboard.general.string = acc.seecoon_token }
-                            Button("删除", role: .destructive) { manager.deleteAccount(uuid: acc.id) }
-                        }
-                    }
+    @State private var catchCount = 0
+    @State private var qrImage = UIImage()
+    @State private var session = ""
+    @State private var showAuth = false
+    @State private var authFinished = false
+    @State private var clipTask: Task<Void, Never>?
+    @State private var loopTask: Task<Void, Never>?
+    @State private var lastPaste = ""
+    
+    func newSession() {
+        loopTask?.cancel()
+        clipTask?.cancel()
+        session = UUID().uuidString
+        let base64Session = Data(session.utf8).base64EncodedString()
+        let customProtocol = "open://authdata/\(base64Session)"
+        qrImage = QRGenerator.createQRCode(text: customProtocol)
+        startClipboard()
+        startPolling()
+    }
+    
+    func startClipboard() {
+        clipTask = Task {
+            while true {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                let paste = UIPasteboard.general.string ?? ""
+                if paste != lastPaste && paste.contains("open://authdata/") {
+                    lastPaste = paste
+                    let baseStr = paste.replacingOccurrences(of: "open://authdata/", with: "")
+                    guard let data = Data(base64Encoded: baseStr),
+                          let sid = String(data: data, encoding: .utf8),
+                          sid == session else { continue }
+                    await MainActor.run { showAuth = true }
                 }
             }
         }
     }
+    
+    func startPolling() {
+        loopTask = Task {
+            var count = 0
+            while true {
+                try? await Task.sleep(nanoseconds: 1_300_000_000)
+                count += 1
+                if count >= 70 {
+                    await MainActor.run { newSession() }
+                    break
+                }
+                guard let url = URL(string: "https://game.seecoon.com/api/login/checkScan?session=\(session)") else { continue }
+                do {
+                    let (data, _) = try await URLSession.shared.data(from: url)
+                    guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let user = json["data"] as? [String: Any] else { continue }
+                    let acc = Account(openid: user["openid"] as! String,
+                                      seecoon_token: user["seecoon_token"] as! String,
+                                      quid: user["quid"] as! String,
+                                      refresh_token: user["refresh_token"] as! String)
+                    await MainActor.run {
+                        manager.saveNewAccount(acc)
+                        catchCount += 1
+                        newSession()
+                    }
+                    break
+                } catch {}
+            }
+        }
+    }
+    
+    var body: some View {
+        ZStack {
+            // ✅ 白底全屏
+            Color.white.ignoresSafeArea()
+            
+            HStack(spacing: 0) {
+                // 左侧信息
+                VStack(spacing: 35) {
+                    HStack {
+                        // ✅ 返回键改为返回首页，不退出
+                        Button("返回首页") {
+                            // 恢复竖屏
+                            AppDelegate.orientationLock = .portrait
+                            UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+                            UIViewController.attemptRotationToDeviceOrientation()
+                            loopTask?.cancel()
+                            clipTask?.cancel()
+                            currentPage = .home
+                        }
+                        .foregroundColor(.blue)
+                        Spacer()
+                    }
+                    .padding(.leading, 20)
+                    
+                    Spacer()
+                    
+                    Text("三角洲")
+                        .font(.system(size: 52, weight: .bold))
+                        .foregroundColor(.black)
+                    
+                    Text("今日已抓取账号：\(catchCount) 个")
+                        .foregroundColor(.gray)
+                        .font(.system(size: 22))
+                    
+                    Spacer()
+                }
+                .frame(width: UIScreen.main.bounds.width * 0.45)
+                
+                // 右侧二维码
+                VStack {
+                    Spacer()
+                    Image(uiImage: qrImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 290, height: 290)
+                    Spacer()
+                }
+                .frame(width: UIScreen.main.bounds.width * 0.55)
+            }
+        }
+        .onAppear {
+            // ✅ 进入挂机页面强制横屏
+            AppDelegate.orientationLock = .landscapeRight
+            UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+            UIViewController.attemptRotationToDeviceOrientation()
+            newSession()
+        }
+        .onDisappear {
+            loopTask?.cancel()
+            clipTask?.cancel()
+            // ✅ 离开时恢复竖屏
+            AppDelegate.orientationLock = .portrait
+            UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
+    }
 }
 
-// MARK: - Token 校验与上号（✅ 已修复网络错误，改为本地校验）
+// MARK: - 账号库存页面（✅ 竖屏，白底）
+struct PageB: View {
+    @EnvironmentObject var manager: DataManager
+    @Binding var currentPage: AppPage
+    
+    var body: some View {
+        ZStack {
+            Color.white.ignoresSafeArea()
+            
+            VStack {
+                HStack {
+                    Button("返回首页") { currentPage = .home }
+                        .foregroundColor(.blue)
+                    Spacer()
+                }
+                .padding()
+                
+                Text("账号库存管理")
+                    .foregroundColor(.black)
+                    .font(.title)
+                    .bold()
+                
+                List(manager.accounts) { acc in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("OpenID：\(acc.openid)")
+                            .foregroundColor(.black)
+                        Text("Token：\(String(acc.seecoon_token.prefix(20)))...")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray)
+                        HStack(spacing: 15) {
+                            Button("复制Token") {
+                                UIPasteboard.general.string = acc.seecoon_token
+                            }
+                            Button("删除账号", role: .destructive) {
+                                manager.deleteAccount(uuid: acc.id)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 5)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .onAppear {
+            // ✅ 确保竖屏
+            AppDelegate.orientationLock = .portrait
+        }
+    }
+}
+
+// MARK: - Token 校验与上号（✅ 竖屏，白底，本地校验）
 struct PageC: View {
     @Binding var currentPage: AppPage
     @State var token = ""
@@ -233,31 +412,57 @@ struct PageC: View {
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color.white.ignoresSafeArea()
+            
             VStack(spacing: 22) {
                 HStack {
-                    Button("返回") { currentPage = .home }.foregroundColor(.blue)
+                    Button("返回首页") { currentPage = .home }
+                        .foregroundColor(.blue)
                     Spacer()
-                }.padding()
+                }
+                .padding()
                 
-                TextField("输入 Seecoon Token", text: $token)
-                    .textFieldStyle(.roundedBorder).padding(.horizontal)
+                Text("Token 校验与一键上号")
+                    .font(.title2).bold()
+                    .foregroundColor(.black)
                 
-                Button("校验有效性") { check() }.foregroundColor(.blue)
+                TextField("粘贴 Seecoon Token", text: $token)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, 20)
                 
-                Text(status).foregroundColor(.white)
+                Button("校验有效性") { check() }
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.blue)
+                    .cornerRadius(10)
                 
-                Button("一键上号") {
+                Text(status)
+                    .foregroundColor(status.contains("✅") ? .green : .red)
+                    .font(.system(size: 16))
+                
+                Button("一键唤起三角洲登录") {
                     UIApplication.shared.open(URL(string: "seecoon://login?token=\(token)")!)
-                }.disabled(token.isEmpty)
+                }
+                .disabled(token.isEmpty)
+                .foregroundColor(.white)
+                .padding()
+                .background(Color.orange)
+                .cornerRadius(10)
+                
+                Spacer()
             }
+            .padding(.top, 20)
+        }
+        .onAppear {
+            // ✅ 确保竖屏
+            AppDelegate.orientationLock = .portrait
         }
     }
     
-    // ✅ 本地校验，不再联网
+    // ✅ 本地校验
     func check() {
         if token.isEmpty {
-            status = "❌ 请输入 token"
+            status = "❌ 请输入 Token"
         } else if token.count > 80 {
             status = "✅ Token 格式有效（请用一键上号验证实际可用性）"
         } else {
@@ -277,10 +482,23 @@ struct DeltaApp: App {
         WindowGroup {
             if #available(iOS 16.4, *) {
                 switch currentPage {
-                case .home: HomeView(currentPage: $currentPage).environmentObject(manager)
-                case .accountList: PageB(currentPage: $currentPage).environmentObject(manager)
-                case .tokenCheck: PageC(currentPage: $currentPage)
-                default: EmptyView()
+                case .home:
+                    HomeView(currentPage: $currentPage)
+                        .environmentObject(manager)
+                    
+                case .authQR:
+                    // ✅ A页面：挂机收号（强制横屏）
+                    PageA(currentPage: $currentPage)
+                        .environmentObject(manager)
+                    
+                case .accountList:
+                    // ✅ B页面：账号库存（竖屏）
+                    PageB(currentPage: $currentPage)
+                        .environmentObject(manager)
+                    
+                case .tokenCheck:
+                    // ✅ C页面：Token校验（竖屏）
+                    PageC(currentPage: $currentPage)
                 }
             }
         }
