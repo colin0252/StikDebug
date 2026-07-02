@@ -12,29 +12,10 @@
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
-
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
-
-    <!-- 注册回调 URL Scheme -->
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>seecoonlocal</string>
-            </array>
-            <key>CFBundleURLName</key>
-            <string>com.stikdebug.oauth</string>
-        </dict>
-    </array>
-
-    <key>NSPasteboardUsageDescription</key>
-    <string>读取剪贴板识别扫码信息</string>
-    <key>UIApplicationExitsOnSuspend</key>
-    <false/>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
         <string>arm64</string>
