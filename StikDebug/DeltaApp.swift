@@ -19,28 +19,32 @@ struct QRGenerator {
     }
 }
 
-//纯CryptoKit加密，无任何OC代码，永远不会65报错
+//修复Xcode16 Release静态初始化崩溃报错，不在全局创建Nonce
 struct CryptoHelper {
-    private static let key = SymmetricKey(data: Data("IENNSJFJWKSFJ20260702".utf8))
-    private static let fixedNonce = AES.GCM.Nonce(data: Data("1234567890123456".utf8))
+    private static let keyRaw = Data("IENNSJFJWKSFJ20260702".utf8)
+    private static let nonceRaw = Data("1234567890123456".utf8)
     
     static func encrypt(_ text: String) -> String {
+        let key = SymmetricKey(data: keyRaw)
+        let nonce = AES.GCM.Nonce(data: nonceRaw)
         let rawData = Data(text.utf8)
-        let sealedBox = AES.GCM.seal(rawData, using: key, nonce: fixedNonce)
+        let sealedBox = AES.GCM.seal(rawData, using: key, nonce: nonce)
         return sealedBox.combined!.base64EncodedString()
     }
     
     static func decrypt(_ base64Str: String) -> String {
-        guard let combinedData = Data(base64Encoded: base64Str),
-              let sealedBox = try? AES.GCM.SealedBox(combined: combinedData),
-              let originData = try? AES.GCM.open(sealedBox, using: key, nonce: fixedNonce) else {
+        guard let combinedData = Data(base64Encoded: base64Str) else { return "" }
+        let key = SymmetricKey(data: keyRaw)
+        let nonce = AES.GCM.Nonce(data: nonceRaw)
+        guard let sealedBox = try? AES.GCM.SealedBox(combined: combinedData),
+              let originData = try? AES.GCM.open(sealedBox, using: key, nonce: nonce) else {
             return ""
         }
         return String(data: originData, encoding: .utf8) ?? ""
     }
 }
 
-//账号结构体 修复Codable解码报错
+//账号结构体 修复Codable解码警告
 struct Account: Identifiable, Codable {
     let id: UUID
     let openid: String
@@ -99,7 +103,7 @@ class DataManager: ObservableObject {
     }
 }
 
-//iOS16可用横屏强制修饰（删掉supportedOrientations，云端编译不会报错）
+//iOS16可用横屏强制修饰
 struct LandscapeModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -419,7 +423,7 @@ struct TokenLoginView: View {
     }
 }
 
-//首页：彻底删掉navigationDestination(item)，全部改用sheet弹窗，纯iOS16兼容
+//首页：全部改用sheet，无iOS17导航API
 struct HomeView: View {
     @EnvironmentObject var manager: DataManager
     @State var openScan = false
