@@ -11,6 +11,7 @@
     <array>
         <string>seecoon</string>
         <string>mqqapi</string>
+        <string>mqq</string>
         <string>seecoonlocal</string>
     </array>
     <key>CFBundleURLTypes</key>
@@ -20,6 +21,8 @@
             <array>
                 <string>seecoonlocal</string>
             </array>
+            <key>CFBundleURLName</key>
+            <string>com.stik.qrlogin</string>
         </dict>
     </array>
     <key>UISupportedInterfaceOrientations</key>
@@ -27,7 +30,14 @@
         <string>UIInterfaceOrientationPortrait</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
     <key>UIRequiresFullScreen</key>
+    <true/>
+    <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
 </dict>
 </plist>
