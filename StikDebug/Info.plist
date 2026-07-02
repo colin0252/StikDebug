@@ -2,12 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- 相册保存权限（保存二维码需要） -->
-    <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>需要使用相册权限来保存生成的二维码图片</string>
-    
-    <!-- 相册读取权限（备用） -->
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>需要访问相册来读取图片</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>需要使用相册权限来保存生成的二维码图片</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要访问相册来读取图片</string>
 </dict>
 </plist>
