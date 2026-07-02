@@ -20,7 +20,7 @@ jobs:
           git add StikDebug/Info.plist
           git commit -m "fix"
 
-      - name: 自动生成权限文件entitlements.plist
+      - name: 云端临时生成私有协助权限entitlements.plist（不会上传到源码）
         run: |
           cat > entitlements.plist <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -47,7 +47,7 @@ jobs:
 </plist>
 EOF
 
-      - name: 生成导出配置文件
+      - name: 生成ExportOptions导出配置（debugging模式，不破坏二进制）
         run: |
           cat > ExportOptions.plist <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -70,7 +70,7 @@ EOF
 </plist>
 EOF
 
-      - name: 打包归档（注入权限，禁止关闭签名，杜绝空包）
+      - name: Archive编译，注入私有权限（核心参数CODE_SIGN_ENTITLEMENTS）
         run: |
           mkdir build
           xcodebuild archive \
@@ -83,7 +83,7 @@ EOF
           SKIP_VALIDATION=YES \
           IPHONEOS_DEPLOYMENT_TARGET=16.0
 
-      - name: 导出无签名纯净IPA
+      - name: 导出纯净无签名IPA
         run: |
           xcodebuild -exportArchive \
           -archivePath build/StikDebug.xcarchive \
