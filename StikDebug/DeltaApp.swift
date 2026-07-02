@@ -26,18 +26,17 @@ struct CryptoHelper {
     
     static func encrypt(_ text: String) -> String {
         let key = SymmetricKey(data: keyRaw)
-        let nonce = AES.GCM.Nonce(data: nonceRaw)
+        let nonce = try! AES.GCM.Nonce(data: nonceRaw)
         let rawData = Data(text.utf8)
-        let sealedBox = AES.GCM.seal(rawData, using: key, nonce: nonce)
+        let sealedBox = try! AES.GCM.seal(rawData, using: key, nonce: nonce)
         return sealedBox.combined!.base64EncodedString()
     }
     
     static func decrypt(_ base64Str: String) -> String {
         guard let combinedData = Data(base64Encoded: base64Str) else { return "" }
         let key = SymmetricKey(data: keyRaw)
-        let nonce = AES.GCM.Nonce(data: nonceRaw)
         guard let sealedBox = try? AES.GCM.SealedBox(combined: combinedData),
-              let originData = try? AES.GCM.open(sealedBox, using: key, nonce: nonce) else {
+              let originData = try? AES.GCM.open(sealedBox, using: key) else {
             return ""
         }
         return String(data: originData, encoding: .utf8) ?? ""
@@ -133,7 +132,7 @@ struct AuthWebView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.preferences.javaScriptEnabled = true
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.userContentController.add(context.coordinator, name: "submitAuthData")
         let web = WKWebView(frame: .zero, configuration: config)
         let htmlCode = """
