@@ -1,5 +1,6 @@
-name: Build IPA
-on: push
+name: 手动打包IPA
+on:
+  workflow_dispatch: # 只能网页手动点击运行，推送代码不会自动打包
 
 jobs:
   build:
@@ -7,10 +8,10 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: Checkout
+      - name: 拉取代码
         uses: actions/checkout@v6
 
-      - name: 编译出.app文件（不使用archive，规避Xcode16 BundleID校验BUG）
+      - name: 编译Release版App，绕过archive报错
         run: |
           mkdir -p build
           xcodebuild build \
@@ -27,15 +28,15 @@ jobs:
           IPHONEOS_DEPLOYMENT_TARGET=16.0 \
           COMPILE_BITCODE=NO
 
-      - name: 把.app打包成无签名IPA
+      - name: 打包Payload生成标准无签名IPA（巨魔/TrollStore通用）
         run: |
           cd build/dd/Build/Products/Release-iphoneos
-          mkdir Payload
+          mkdir -p Payload
           cp -r StikDebug.app Payload/
-          zip -q -r StikDebug成品IPA.zip Payload
-          mv StikDebug成品IPA.zip ../../StikDebug.ipa
+          zip -q -r StikDebug.ipa Payload
+          mv StikDebug.ipa ../../
 
-      - name: 上传IPA
+      - name: 上传成品IPA文件
         uses: actions/upload-artifact@v7
         with:
           name: StikDebug收号器
