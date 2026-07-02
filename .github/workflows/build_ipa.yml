@@ -9,32 +9,36 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup Xcode 16.4
+    - name: 指定Xcode16.4
       run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
 
-    - name: Build Project
+    - name: 归档编译（唯一不会打出空包的方式）
       run: |
         mkdir build
-        xcodebuild -project StikDebug.xcodeproj -scheme StikDebug \
+        xcodebuild archive \
+        -project StikDebug.xcodeproj \
+        -scheme StikDebug \
         -configuration Release \
         -sdk iphoneos \
+        -archivePath ./build/StikDebug.xcarchive \
         CODE_SIGN_IDENTITY="" \
         CODE_SIGNING_REQUIRED=NO \
         CODE_SIGNING_ALLOWED=NO \
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
         SWIFT_VERSION=5 \
         IPHONEOS_DEPLOYMENT_TARGET=16.0 \
-        CONFIGURATION_BUILD_DIR=./build
+        COMPILE_BITCODE=NO
 
-    - name: Make IPA
+    - name: 导出无签名IPA
       run: |
-        mkdir Payload
-        mv build/StikDebug.app Payload/
-        zip -q -r StikDebug.ipa Payload
-        rm -rf Payload
+        echo '{"method":"development","signingStyle":"manual","compileBitcode":false,"thinning":"none"}' > export.plist
+        xcodebuild -exportArchive \
+        -archivePath ./build/StikDebug.xcarchive \
+        -exportPath ./output \
+        -exportOptionsPlist export.plist
 
-    - name: Upload IPA
+    - name: 上传成品IPA
       uses: actions/upload-artifact@v4
       with:
-        name: StikDebug收号器
-        path: StikDebug.ipa
+        name: StikDebug成品
+        path: output/StikDebug.ipa
