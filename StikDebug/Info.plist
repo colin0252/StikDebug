@@ -20,31 +20,15 @@
     <array>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
-    <key>BGTaskSchedulerPermittedIdentifiers</key>
-    <array>
-        <string>com.stikdebug.refresh</string>
-    </array>
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>fetch</string>
-        <string>processing</string>
-    </array>
     <key>NSPasteboardUsageDescription</key>
     <string>需要访问剪贴板</string>
     <key>UIKitPasteboardAccessUsageDescription</key>
     <string>需要访问剪贴板</string>
-    
-    <!-- 注册回调 URL Scheme，必须与 QQConfig 中一致 -->
-    <key>CFBundleURLTypes</key>
+    <key>UIApplicationExitsOnSuspend</key>
+    <false/>
+    <key>UIRequiredDeviceCapabilities</key>
     <array>
-        <dict>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>seecoonlocal</string>
-            </array>
-            <key>CFBundleURLName</key>
-            <string>com.stikdebug.oauth</string>
-        </dict>
+        <string>arm64</string>
     </array>
 </dict>
 </plist>
