@@ -17,24 +17,24 @@
     <array>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
-    <key>UISupportedInterfaceOrientations~ipad</key>
+
+    <!-- 注册回调 URL Scheme -->
+    <key>CFBundleURLTypes</key>
     <array>
-        <string>UIInterfaceOrientationLandscapeRight</string>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>seecoonlocal</string>
+            </array>
+            <key>CFBundleURLName</key>
+            <string>com.stikdebug.oauth</string>
+        </dict>
     </array>
 
-    <!-- 剪贴板权限（必须） -->
     <key>NSPasteboardUsageDescription</key>
     <string>读取剪贴板识别扫码信息</string>
-    <key>UIKitPasteboardAccessUsageDescription</key>
-    <string>读取剪贴板内容完成授权抓取</string>
-
     <key>UIApplicationExitsOnSuspend</key>
     <false/>
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>fetch</string>
-        <string>processing</string>
-    </array>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
         <string>arm64</string>
