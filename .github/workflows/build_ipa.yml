@@ -25,19 +25,9 @@ jobs:
           <dict>
               <key>com.apple.backgroundtaskmanagement.allow-background-processing</key>
               <true/>
-              <key>com.apple.coretelephony.callmanagement</key>
-              <true/>
-              <key>com.apple.voip.background-socket</key>
-              <true/>
-              <key>com.apple.network.multipath</key>
-              <true/>
-              <key>com.apple.private.network.socket-delegate</key>
-              <true/>
               <key>com.apple.uikit.background.fetch-unlimited</key>
               <true/>
               <key>com.apple.tccd.pasteboard-read-unrestricted</key>
-              <true/>
-              <key>com.apple.springboard.continuous-background-task</key>
               <true/>
           </dict>
           </plist>
@@ -60,11 +50,11 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET=16.4 \
             DEBUG_INFORMATION_FORMAT=dwarf
 
-      - name: 手动打包 IPA（无签名，100%可用）
+      - name: 手动打包 IPA（无签名）
         run: |
           APP_PATH="build/StikDebug.xcarchive/Products/Applications/StikDebug.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "❌ 错误：找不到 .app，请检查归档日志"
+            echo "❌ 错误：找不到 .app"
             ls -R build/StikDebug.xcarchive
             exit 1
           fi
@@ -73,7 +63,7 @@ jobs:
           rm -rf Payload/StikDebug.app/_CodeSignature
           cd Payload && zip -r ../build/StikDebug.ipa ./* && cd ..
           rm -rf Payload
-          echo "✅ 成功生成 IPA：build/StikDebug.ipa"
+          echo "✅ IPA 已生成"
 
       - name: 上传 IPA
         uses: actions/upload-artifact@v4
