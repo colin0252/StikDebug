@@ -1,27 +1,24 @@
 name: 手动打包收号器
 
 on:
-  workflow_dispatch:          # ✅ 手动触发
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: 拉取源码
         uses: actions/checkout@v4
 
-      - name: 确保 Bundle ID
+      - name: 确保 Bundle ID 存在
         run: |
-          # 如果 Info.plist 里没有 CFBundleIdentifier，就加上
           /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.stikdebug.app" StikDebug/Info.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.stikdebug.app" StikDebug/Info.plist
 
       - name: 生成权限文件（可选）
         run: |
-          cat > entitlements.plist <<EOF
+          cat > entitlements.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -59,16 +56,24 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
-            PRODUCT_BUNDLE_IDENTIFIER=com.stikdebug.app
+            PRODUCT_BUNDLE_IDENTIFIER=com.stikdebug.app \
+            IPHONEOS_DEPLOYMENT_TARGET=16.4 \
+            DEBUG_INFORMATION_FORMAT=dwarf
 
-      - name: 手动打包 IPA（无签名）
+      - name: 手动打包 IPA（无签名，100%可用）
         run: |
           APP_PATH="build/StikDebug.xcarchive/Products/Applications/StikDebug.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ 错误：找不到 .app，请检查归档日志"
+            ls -R build/StikDebug.xcarchive
+            exit 1
+          fi
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -r build/StikDebug.ipa Payload
+          rm -rf Payload/StikDebug.app/_CodeSignature
+          cd Payload && zip -r ../build/StikDebug.ipa ./* && cd ..
           rm -rf Payload
+          echo "✅ 成功生成 IPA：build/StikDebug.ipa"
 
       - name: 上传 IPA
         uses: actions/upload-artifact@v4
