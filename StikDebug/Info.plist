@@ -12,10 +12,13 @@
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
+
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+
+    <!-- 回调 URL Scheme -->
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -27,6 +30,7 @@
             <string>com.stikdebug.oauth</string>
         </dict>
     </array>
+
     <key>NSPasteboardUsageDescription</key>
     <string>读取剪贴板识别扫码信息</string>
     <key>UIApplicationExitsOnSuspend</key>
