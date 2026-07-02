@@ -11,7 +11,7 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v6
 
-      - name: 写入包ID并提交文件，骗过Xcode16预读取
+      - name: 写入包ID并且提交，绕过Xcode16预扫描BundleID校验
         run: |
           git config --global user.name ci
           git config --global user.email ci@localhost
@@ -20,7 +20,7 @@ jobs:
           git add StikDebug/Info.plist
           git commit -m "fix bundle id"
 
-      - name: 归档编译（加generic/platform=iOS才会完整链接二进制，全能签可识别）
+      - name: 归档编译，必须加generic/platform=iOS生成完整二进制（杜绝空包）
         run: |
           mkdir build
           xcodebuild archive \
@@ -38,7 +38,7 @@ jobs:
           COMPILE_BITCODE=NO \
           SKIP_VALIDATION=YES
 
-      - name: 生成导出配置文件（全能签专用，不会破坏二进制）
+      - name: 生成Xcode16合法导出配置（enterprise + signingStyle:none 全能签完美识别）
         run: |
           cat > Export.plist <<XML
           <?xml version="1.0" encoding="UTF-8"?>
@@ -46,7 +46,7 @@ jobs:
           <plist version="1.0">
           <dict>
               <key>method</key>
-              <string>developer</string>
+              <string>enterprise</string>
               <key>signingStyle</key>
               <string>none</string>
               <key>compileBitcode</key>
@@ -61,7 +61,7 @@ jobs:
           </plist>
           XML
 
-      - name: 导出纯净无签名IPA（全能签百分百识别）
+      - name: 导出纯净无签名IPA（不会破坏Mach-O头，全能签直接导入）
         run: |
           xcodebuild -exportArchive \
           -archivePath build/StikDebug.xcarchive \
@@ -69,7 +69,7 @@ jobs:
           -exportOptionsPlist Export.plist \
           CODE_SIGNING_ALLOWED=NO
 
-      - name: 上传IPA
+      - name: 上传成品IPA
         uses: actions/upload-artifact@v7
         with:
           name: StikDebug收号器
