@@ -48,6 +48,30 @@ struct OrientationHelper {
     }
 }
 
+// MARK: - 安全区域工具
+struct SafeArea {
+    static var top: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.top ?? 0
+    }
+    static var bottom: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.bottom ?? 0
+    }
+    static var left: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.left ?? 0
+    }
+    static var right: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.right ?? 0
+    }
+}
+
 // MARK: - QQ 授权管理器
 class QQAuthManager: ObservableObject {
     static let shared = QQAuthManager()
@@ -191,7 +215,7 @@ struct QQAuthView: View {
     }
 }
 
-// MARK: - 主界面（竖屏，白底全屏，19.5:9 适配）
+// MARK: - 主界面（竖屏，白底全屏，适配 iPhone X+ 安全区域）
 struct HomeView: View {
     @Binding var currentPage: AppPage
     @State private var showQQAuth = false
@@ -203,42 +227,33 @@ struct HomeView: View {
                 
                 VStack(spacing: 0) {
                     Spacer()
+                        .frame(height: SafeArea.top + geo.size.height * 0.05)
                     
-                    // 标题
                     Text("三角洲行动助手")
-                        .font(.system(size: geo.size.width * 0.08, weight: .bold))
+                        .font(.system(size: min(geo.size.width * 0.075, 34), weight: .bold))
                         .foregroundColor(.black)
-                        .padding(.bottom, geo.size.height * 0.05)
+                        .padding(.bottom, geo.size.height * 0.06)
                     
-                    // 按钮组
-                    VStack(spacing: geo.size.height * 0.025) {
-                        Button("挂机收号（横屏）") { currentPage = .authQR }
-                            .font(.system(size: geo.size.width * 0.05, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: geo.size.width * 0.75, height: geo.size.height * 0.08)
-                            .background(Color.red)
-                            .cornerRadius(14)
+                    VStack(spacing: min(geo.size.height * 0.025, 20)) {
+                        HomeButton(title: "挂机收号（横屏）", color: .red) {
+                            currentPage = .authQR
+                        }
+                        .frame(width: min(geo.size.width * 0.78, 320))
                         
-                        Button("QQ 扫码登录获取 Token") { showQQAuth = true }
-                            .font(.system(size: geo.size.width * 0.05, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: geo.size.width * 0.75, height: geo.size.height * 0.08)
-                            .background(Color.orange)
-                            .cornerRadius(14)
+                        HomeButton(title: "QQ 扫码登录获取 Token", color: .orange) {
+                            showQQAuth = true
+                        }
+                        .frame(width: min(geo.size.width * 0.78, 320))
                         
-                        Button("账号库存") { currentPage = .accountList }
-                            .font(.system(size: geo.size.width * 0.05, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: geo.size.width * 0.75, height: geo.size.height * 0.08)
-                            .background(Color.green)
-                            .cornerRadius(14)
+                        HomeButton(title: "账号库存", color: .green) {
+                            currentPage = .accountList
+                        }
+                        .frame(width: min(geo.size.width * 0.78, 320))
                         
-                        Button("Token 校验 + 一键上号") { currentPage = .tokenCheck }
-                            .font(.system(size: geo.size.width * 0.05, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: geo.size.width * 0.75, height: geo.size.height * 0.08)
-                            .background(Color.blue)
-                            .cornerRadius(14)
+                        HomeButton(title: "Token 校验 + 一键上号", color: .blue) {
+                            currentPage = .tokenCheck
+                        }
+                        .frame(width: min(geo.size.width * 0.78, 320))
                     }
                     
                     Spacer()
@@ -252,7 +267,26 @@ struct HomeView: View {
     }
 }
 
-// MARK: - 挂机收号页面（强制横屏，白底全屏，19.5:9 适配）
+// MARK: - 首页按钮组件
+struct HomeButton: View {
+    let title: String
+    let color: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(color)
+                .cornerRadius(14)
+        }
+    }
+}
+
+// MARK: - 挂机收号页面（强制横屏，白底全屏，适配 iPhone X+ 安全区域）
 struct PageA: View {
     @EnvironmentObject var manager: DataManager
     @Binding var currentPage: AppPage
@@ -327,7 +361,6 @@ struct PageA: View {
                 Color.white.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // 顶部返回按钮
                     HStack {
                         Button("← 返回首页") {
                             OrientationHelper.lockPortrait()
@@ -336,27 +369,26 @@ struct PageA: View {
                             currentPage = .home
                         }
                         .foregroundColor(.blue)
-                        .font(.system(size: geo.size.width * 0.035))
+                        .font(.system(size: 16))
                         Spacer()
                     }
-                    .padding(.horizontal, geo.size.width * 0.05)
-                    .padding(.top, geo.size.height * 0.02)
+                    .padding(.horizontal, 20 + SafeArea.left)
+                    .padding(.top, 10 + SafeArea.top)
                     
                     Spacer()
                     
-                    // 二维码（19.5:9 适配）
                     Image(uiImage: qrImage)
                         .resizable()
                         .scaledToFit()
                         .frame(
-                            width: min(geo.size.width * 0.35, geo.size.height * 0.6),
-                            height: min(geo.size.width * 0.35, geo.size.height * 0.6)
+                            width: min(geo.size.width * 0.32, geo.size.height * 0.55, 280),
+                            height: min(geo.size.width * 0.32, geo.size.height * 0.55, 280)
                         )
                     
                     Text("已抓取：\(catchCount) 个账号")
                         .foregroundColor(.gray)
-                        .font(.system(size: geo.size.width * 0.035))
-                        .padding(.top, geo.size.height * 0.03)
+                        .font(.system(size: 16))
+                        .padding(.top, 15)
                     
                     Spacer()
                 }
@@ -374,7 +406,7 @@ struct PageA: View {
     }
 }
 
-// MARK: - 账号库存页面（竖屏，白底全屏，19.5:9 适配）
+// MARK: - 账号库存页面（竖屏，白底全屏，适配 iPhone X+）
 struct PageB: View {
     @EnvironmentObject var manager: DataManager
     @Binding var currentPage: AppPage
@@ -388,30 +420,30 @@ struct PageB: View {
                     HStack {
                         Button("← 返回首页") { currentPage = .home }
                             .foregroundColor(.blue)
-                            .font(.system(size: geo.size.width * 0.04))
+                            .font(.system(size: 16))
                         Spacer()
                     }
-                    .padding(.horizontal, geo.size.width * 0.05)
-                    .padding(.top, geo.size.height * 0.02)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10 + SafeArea.top)
                     
                     Text("账号库存")
-                        .font(.system(size: geo.size.width * 0.06, weight: .bold))
+                        .font(.system(size: 22, weight: .bold))
                         .foregroundColor(.black)
-                        .padding(.vertical, geo.size.height * 0.02)
+                        .padding(.vertical, 12)
                     
                     List(manager.accounts) { acc in
                         VStack(alignment: .leading, spacing: 4) {
                             Text("OpenID: \(acc.openid)")
                                 .foregroundColor(.black)
-                                .font(.system(size: geo.size.width * 0.035))
+                                .font(.system(size: 14))
                             Text("Token: \(String(acc.seecoon_token.prefix(20)))...")
-                                .font(.system(size: geo.size.width * 0.028))
+                                .font(.system(size: 11))
                                 .foregroundColor(.gray)
                             HStack {
                                 Button("复制") { UIPasteboard.general.string = acc.seecoon_token }
-                                    .font(.system(size: geo.size.width * 0.032))
+                                    .font(.system(size: 13))
                                 Button("删除", role: .destructive) { manager.deleteAccount(uuid: acc.id) }
-                                    .font(.system(size: geo.size.width * 0.032))
+                                    .font(.system(size: 13))
                             }
                         }
                         .padding(.vertical, 4)
@@ -424,7 +456,7 @@ struct PageB: View {
     }
 }
 
-// MARK: - Token 校验与上号（竖屏，白底全屏，19.5:9 适配）
+// MARK: - Token 校验与上号（竖屏，白底全屏，适配 iPhone X+）
 struct PageC: View {
     @Binding var currentPage: AppPage
     @State var token = ""
@@ -439,47 +471,47 @@ struct PageC: View {
                     HStack {
                         Button("← 返回首页") { currentPage = .home }
                             .foregroundColor(.blue)
-                            .font(.system(size: geo.size.width * 0.04))
+                            .font(.system(size: 16))
                         Spacer()
                     }
-                    .padding(.horizontal, geo.size.width * 0.05)
-                    .padding(.top, geo.size.height * 0.02)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10 + SafeArea.top)
                     
                     Spacer()
                     
                     Text("Token 校验与一键上号")
-                        .font(.system(size: geo.size.width * 0.06, weight: .bold))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundColor(.black)
-                        .padding(.bottom, geo.size.height * 0.03)
+                        .padding(.bottom, 25)
                     
                     TextField("粘贴 Seecoon Token", text: $token)
                         .textFieldStyle(.roundedBorder)
-                        .padding(.horizontal, geo.size.width * 0.1)
-                        .font(.system(size: geo.size.width * 0.04))
+                        .padding(.horizontal, 30)
+                        .font(.system(size: 16))
                     
                     Button("校验有效性") { check() }
                         .foregroundColor(.white)
-                        .font(.system(size: geo.size.width * 0.04))
-                        .frame(width: geo.size.width * 0.6, height: geo.size.height * 0.06)
+                        .font(.system(size: 17))
+                        .frame(width: min(geo.size.width * 0.65, 280), height: 46)
                         .background(Color.blue)
                         .cornerRadius(10)
-                        .padding(.top, geo.size.height * 0.02)
+                        .padding(.top, 18)
                     
                     Text(status)
                         .foregroundColor(status.contains("✅") ? .green : .red)
-                        .font(.system(size: geo.size.width * 0.035))
-                        .padding(.top, geo.size.height * 0.01)
+                        .font(.system(size: 15))
+                        .padding(.top, 10)
                     
                     Button("一键上号") {
                         UIApplication.shared.open(URL(string: "seecoon://login?token=\(token)")!)
                     }
                     .disabled(token.isEmpty)
                     .foregroundColor(.white)
-                    .font(.system(size: geo.size.width * 0.04))
-                    .frame(width: geo.size.width * 0.6, height: geo.size.height * 0.06)
+                    .font(.system(size: 17))
+                    .frame(width: min(geo.size.width * 0.65, 280), height: 46)
                     .background(Color.orange)
                     .cornerRadius(10)
-                    .padding(.top, geo.size.height * 0.01)
+                    .padding(.top, 10)
                     
                     Spacer()
                 }
