@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - 数据模型
 struct GameAccount: Identifiable, Codable {
@@ -102,28 +103,57 @@ class GameLoginManager: ObservableObject {
         }
     }
 
-    // 登录游戏
-    func loginGame(gameName: String, gameCode: String, token: String? = nil) {
+    // 唤起游戏并登录
+    func launchGame(gameName: String, urlScheme: String, token: String? = nil) {
         let tokenToUse = token ?? currentToken
         guard !tokenToUse.isEmpty else {
             show("请先输入或选择Token", type: .warning)
             return
         }
-        show("正在登录\(gameName)...", type: .info)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self = self else { return }
-            let newAccount = GameAccount(
-                id: UUID().uuidString,
-                gameName: gameName,
-                uid: "\(Int.random(in: 100000000...999999999))",
-                username: "Player_\(Int.random(in: 1000...9999))",
-                loginTime: self.getCurrentTimeString()
-            )
-            self.accounts.append(newAccount)
-            self.saveAccounts()
-            self.show("\(gameName)登录成功！", type: .success)
+        // 先把Token复制到剪贴板，方便目标App读取
+        UIPasteboard.general.string = tokenToUse
+
+        // 尝试通过 URL Scheme 唤起
+        if let url = URL(string: "\(urlScheme)://login?token=\(tokenToUse)") {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url) { success in
+                    if success {
+                        self.show("正在唤起\(gameName)...", type: .info)
+                        // 记录登录行为
+                        let newAccount = GameAccount(
+                            id: UUID().uuidString,
+                            gameName: gameName,
+                            uid: "Token登录",
+                            username: "已注入Token",
+                            loginTime: self.getCurrentTimeString()
+                        )
+                        self.accounts.append(newAccount)
+                        self.saveAccounts()
+                    } else {
+                        self.show("唤起\(gameName)失败", type: .error)
+                    }
+                }
+            } else {
+                // 未安装游戏
+                self.show("未安装\(gameName)，请先下载", type: .warning)
+                // 仍然记录尝试
+                let newAccount = GameAccount(
+                    id: UUID().uuidString,
+                    gameName: gameName,
+                    uid: "未安装",
+                    username: "Token已准备",
+                    loginTime: self.getCurrentTimeString()
+                )
+                self.accounts.append(newAccount)
+                self.saveAccounts()
+            }
         }
+    }
+
+    // 一键登录（默认三角洲）
+    func oneClickLogin(token: String? = nil) {
+        launchGame(gameName: "三角洲行动", urlScheme: "deltaforce", token: token)
     }
 
     func copyAccountUID(_ uid: String) {
@@ -186,7 +216,7 @@ class GameLoginManager: ObservableObject {
     }
 }
 
-// MARK: - App 入口（使用 NavigationView 支持侧滑返回）
+// MARK: - App 入口
 @main
 struct DeltaApp: App {
     var body: some Scene {
@@ -524,12 +554,19 @@ struct TokenCard: View {
     }
 }
 
-// MARK: - 游戏登录页面（新增独立一键登录按钮）
+// MARK: - 游戏登录页面（唤起游戏）
 struct GameLoginView: View {
     @StateObject private var manager = GameLoginManager()
     @State private var inputToken = ""
     @State private var useIndependentToken = false
     @FocusState private var isTokenFocused: Bool
+
+    // 各游戏 URL Scheme（示例，需替换为真实 scheme）
+    private let games: [(name: String, icon: String, color: Color, scheme: String)] = [
+        ("三角洲行动", "arrow.triangle.swap", Color(red: 1.0, green: 0.45, blue: 0.0), "deltaforce"),
+        ("暗区突围", "shield.fill", Color(red: 0.9, green: 0.15, blue: 0.15), "darkzone"),
+        ("和平精英", "scope", Color(red: 0.1, green: 0.8, blue: 0.3), "pubgm")
+    ]
 
     var body: some View {
         ZStack {
@@ -552,7 +589,7 @@ struct GameLoginView: View {
                         .padding(.horizontal)
 
                         VStack(spacing: 12) {
-                            Toggle("使用独立Token登录", isOn: $useIndependentToken).font(.subheadline).foregroundColor(.white)
+                            Toggle("使用独立Token", isOn: $useIndependentToken).font(.subheadline).foregroundColor(.white)
                             if useIndependentToken {
                                 HStack(spacing: 8) {
                                     TextField("输入独立Token", text: $inputToken)
@@ -589,13 +626,13 @@ struct GameLoginView: View {
                             .padding().background(Color.white.opacity(0.05)).cornerRadius(16)
                         }
 
-                        // 独立一键登录按钮
+                        // 一键唤起三角洲
                         Button(action: {
-                            manager.loginGame(gameName: "三角洲行动", gameCode: "delta_force", token: useIndependentToken ? inputToken : nil)
+                            manager.oneClickLogin(token: useIndependentToken ? inputToken : nil)
                         }) {
                             HStack {
                                 Image(systemName: "bolt.fill")
-                                Text("使用当前 Token 一键登录三角洲行动")
+                                Text("一键唤起三角洲行动")
                                     .fontWeight(.semibold)
                             }
                             .font(.subheadline)
@@ -606,14 +643,19 @@ struct GameLoginView: View {
                             .cornerRadius(12)
                         }
 
-                        Text("或选择游戏登录")
+                        Text("或选择游戏唤起")
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.4))
 
-                        VStack(spacing: 12) {
-                            GameLoginCard(name: "三角洲行动", icon: "arrow.triangle.swap", color: Color(red: 1.0, green: 0.45, blue: 0.0), gameCode: "delta_force", manager: manager, independentToken: useIndependentToken ? inputToken : nil)
-                            GameLoginCard(name: "暗区突围", icon: "shield.fill", color: Color(red: 0.9, green: 0.15, blue: 0.15), gameCode: "dark_zone", manager: manager, independentToken: useIndependentToken ? inputToken : nil)
-                            GameLoginCard(name: "和平精英", icon: "scope", color: Color(red: 0.1, green: 0.8, blue: 0.3), gameCode: "peace_elite", manager: manager, independentToken: useIndependentToken ? inputToken : nil)
+                        ForEach(games, id: \.name) { game in
+                            GameLoginCard(
+                                name: game.name,
+                                icon: game.icon,
+                                color: game.color,
+                                urlScheme: game.scheme,
+                                manager: manager,
+                                independentToken: useIndependentToken ? inputToken : nil
+                            )
                         }
 
                         if !manager.accounts.isEmpty {
@@ -623,7 +665,7 @@ struct GameLoginView: View {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(acc.gameName).font(.subheadline).foregroundColor(.white)
-                                            Text("UID: \(acc.uid)").font(.caption).foregroundColor(.white.opacity(0.5))
+                                            Text("状态: \(acc.uid)").font(.caption).foregroundColor(.white.opacity(0.5))
                                             Text(acc.loginTime).font(.caption2).foregroundColor(.white.opacity(0.3))
                                         }
                                         Spacer()
@@ -654,23 +696,23 @@ struct GameLoginCard: View {
     let name: String
     let icon: String
     let color: Color
-    let gameCode: String
+    let urlScheme: String
     @ObservedObject var manager: GameLoginManager
     var independentToken: String?
 
     var body: some View {
         Button {
-            manager.loginGame(gameName: name, gameCode: gameCode, token: independentToken)
+            manager.launchGame(gameName: name, urlScheme: urlScheme, token: independentToken)
         } label: {
             HStack(spacing: 16) {
                 Image(systemName: icon).font(.system(size: 28)).foregroundColor(.white)
                     .frame(width: 56, height: 56).background(color).clipShape(RoundedRectangle(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 4) {
                     Text(name).font(.headline).foregroundColor(.white)
-                    Text(independentToken != nil ? "使用独立Token" : "使用当前Token").font(.caption).foregroundColor(.white.opacity(0.5))
+                    Text("点击唤起游戏").font(.caption).foregroundColor(.white.opacity(0.5))
                 }
                 Spacer()
-                Text("🚀 登录").font(.subheadline).fontWeight(.medium).foregroundColor(.white).padding(.horizontal, 20).padding(.vertical, 10).background(color).cornerRadius(8)
+                Text("🚀 唤起").font(.subheadline).fontWeight(.medium).foregroundColor(.white).padding(.horizontal, 20).padding(.vertical, 10).background(color).cornerRadius(8)
             }
             .padding(14).background(Color.white.opacity(0.05)).cornerRadius(16)
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
