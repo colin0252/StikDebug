@@ -25,6 +25,7 @@ class GameLoginManager: ObservableObject {
     @Published var tokenRecords: [TokenRecord] = []
     @Published var message: String = ""
     @Published var messageType: MessageType = .info
+    @Published var showMessage: Bool = false
     
     enum MessageType {
         case info, success, warning, error
@@ -39,25 +40,39 @@ class GameLoginManager: ObservableObject {
         loadTokens()
     }
     
+    // 显示消息并自动隐藏
+    private func show(_ text: String, type: MessageType) {
+        message = text
+        messageType = type
+        showMessage = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            self?.showMessage = false
+        }
+    }
+    
     // 储存Token
     func saveToken(_ token: String, source: String = "手动输入") {
         guard !token.isEmpty else { return }
-        if tokenRecords.contains(where: { $0.token == token }) { return }
+        if tokenRecords.contains(where: { $0.token == token }) {
+            show("该Token已存在", type: .warning)
+            return
+        }
         let record = TokenRecord(id: UUID().uuidString, token: token, source: source, createTime: getCurrentTimeString(), note: "")
         tokenRecords.insert(record, at: 0)
         saveTokens()
         if currentToken.isEmpty { selectToken(token) }
+        show("Token已储存", type: .success)
     }
     
     func selectToken(_ token: String) {
         currentToken = token
         isLoggedIn = true
-        showMessage("已切换Token", type: .success)
+        show("已切换Token", type: .success)
     }
     
     func copyToken(_ token: String) {
         UIPasteboard.general.string = token
-        showMessage("已复制", type: .success)
+        show("已复制", type: .success)
     }
     
     func deleteToken(id: String) {
@@ -67,6 +82,7 @@ class GameLoginManager: ObservableObject {
         }
         tokenRecords.removeAll { $0.id == id }
         saveTokens()
+        show("已删除", type: .info)
     }
     
     func clearAllTokens() {
@@ -74,29 +90,27 @@ class GameLoginManager: ObservableObject {
         currentToken = ""
         isLoggedIn = false
         saveTokens()
+        show("已清空", type: .info)
     }
     
-    // 检测Token有效性（模拟）
+    // 检测Token
     func checkToken(_ token: String, completion: @escaping (Bool) -> Void) {
-        showMessage("正在检测...", type: .info)
+        show("正在检测...", type: .info)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             let valid = token.count > 10
-            if valid {
-                self.showMessage("Token有效", type: .success)
-            } else {
-                self.showMessage("Token无效或已过期", type: .error)
-            }
+            self.show(valid ? "Token有效" : "Token无效或已过期", type: valid ? .success : .error)
             completion(valid)
         }
     }
     
+    // 登录游戏 - 核心方法
     func loginGame(gameName: String, gameCode: String, token: String? = nil) {
         let tokenToUse = token ?? currentToken
         guard !tokenToUse.isEmpty else {
-            showMessage("请先输入或选择Token", type: .warning)
+            show("请先输入或选择Token", type: .warning)
             return
         }
-        showMessage("正在登录\(gameName)...", type: .info)
+        show("正在登录\(gameName)...", type: .info)
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self = self else { return }
@@ -109,23 +123,25 @@ class GameLoginManager: ObservableObject {
             )
             self.accounts.append(newAccount)
             self.saveAccounts()
-            self.showMessage("\(gameName)登录成功！", type: .success)
+            self.show("\(gameName)登录成功！", type: .success)
         }
     }
     
     func copyAccountUID(_ uid: String) {
         UIPasteboard.general.string = uid
-        showMessage("UID已复制", type: .success)
+        show("UID已复制", type: .success)
     }
     
     func deleteAccount(id: String) {
         accounts.removeAll { $0.id == id }
         saveAccounts()
+        show("已删除", type: .info)
     }
     
     func clearAllAccounts() {
         accounts.removeAll()
         saveAccounts()
+        show("已清空", type: .info)
     }
     
     private func saveAccounts() {
@@ -151,14 +167,6 @@ class GameLoginManager: ObservableObject {
         if let data = userDefaults.data(forKey: tokensKey),
            let decoded = try? JSONDecoder().decode([TokenRecord].self, from: data) {
             tokenRecords = decoded
-        }
-    }
-    
-    private func showMessage(_ text: String, type: MessageType) {
-        message = text
-        messageType = type
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            self?.message = ""
         }
     }
     
@@ -190,7 +198,7 @@ struct DeltaApp: App {
     }
 }
 
-// MARK: - 主页面 (四个入口)
+// MARK: - 主页面
 struct MainTabView: View {
     @State private var selectedTab = 0
     
@@ -205,6 +213,45 @@ struct MainTabView: View {
             default: HomeView(selectedTab: $selectedTab)
             }
         }
+    }
+}
+
+// MARK: - 消息提示视图（通用）
+struct MessageBanner: View {
+    let message: String
+    let type: GameLoginManager.MessageType
+    
+    var bgColor: Color {
+        switch type {
+        case .info: return Color.blue.opacity(0.9)
+        case .success: return Color.green.opacity(0.9)
+        case .warning: return Color.orange.opacity(0.9)
+        case .error: return Color.red.opacity(0.9)
+        }
+    }
+    
+    var icon: String {
+        switch type {
+        case .info: return "info.circle.fill"
+        case .success: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .error: return "xmark.circle.fill"
+        }
+    }
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+            Text(message)
+                .font(.subheadline)
+        }
+        .foregroundColor(.white)
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(bgColor)
+        .cornerRadius(12)
+        .padding(.horizontal, 16)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
@@ -228,10 +275,10 @@ struct HomeView: View {
                 Spacer().frame(height: 60)
                 
                 VStack(spacing: 16) {
-                    HomeButton(icon: "qrcode", color: .blue, title: "QQ扫码登录", subtitle: "使用手机QQ扫描二维码获取Token", badge: nil) { selectedTab = 1 }
+                    HomeButton(icon: "qrcode", color: .blue, title: "QQ扫码登录", subtitle: "使用手机QQ扫描二维码获取Token") { selectedTab = 1 }
                     HomeButton(icon: "list.clipboard.fill", color: .orange, title: "Token管理", subtitle: "储存Token · 一键复制 · 删除", badge: "\(manager.tokenRecords.count)") { selectedTab = 2 }
-                    HomeButton(icon: "play.circle.fill", color: .green, title: "游戏登录", subtitle: "三角洲行动 / 暗区突围 / 和平精英", badge: nil) { selectedTab = 3 }
-                    HomeButton(icon: "arrow.down.doc.fill", color: .purple, title: "提取Token", subtitle: "从剪贴板或链接提取Token", badge: nil) { selectedTab = 4 }
+                    HomeButton(icon: "play.circle.fill", color: .green, title: "游戏登录", subtitle: "三角洲行动 / 暗区突围 / 和平精英") { selectedTab = 3 }
+                    HomeButton(icon: "arrow.down.doc.fill", color: .purple, title: "提取Token", subtitle: "从剪贴板或链接提取Token") { selectedTab = 4 }
                 }
                 .padding(.horizontal, 24)
                 Spacer()
@@ -246,7 +293,7 @@ struct HomeButton: View {
     let color: Color
     let title: String
     let subtitle: String
-    let badge: String?
+    var badge: String? = nil
     let action: () -> Void
     
     var body: some View {
@@ -287,6 +334,11 @@ struct QRCodeView: View {
             Color(red: 0.08, green: 0.10, blue: 0.16).ignoresSafeArea()
             VStack(spacing: 0) {
                 HeaderBar(title: "QQ扫码登录", onBack: { selectedTab = 0 })
+                
+                if manager.showMessage {
+                    MessageBanner(message: manager.message, type: manager.messageType)
+                }
+                
                 ScrollView {
                     VStack(spacing: 24) {
                         VStack(spacing: 12) {
@@ -365,6 +417,11 @@ struct TokenManageView: View {
                         Button("清空") { manager.clearAllTokens() }.font(.caption).foregroundColor(.red)
                     }
                 }
+                
+                if manager.showMessage {
+                    MessageBanner(message: manager.message, type: manager.messageType)
+                }
+                
                 ScrollView {
                     VStack(spacing: 16) {
                         if manager.isLoggedIn {
@@ -480,7 +537,7 @@ struct TokenCard: View {
     }
 }
 
-// MARK: - 游戏登录页面 (独立输入Token)
+// MARK: - 游戏登录页面（修复版）
 struct GameLoginView: View {
     @Binding var selectedTab: Int
     @StateObject private var manager = GameLoginManager()
@@ -493,9 +550,30 @@ struct GameLoginView: View {
             Color(red: 0.08, green: 0.10, blue: 0.16).ignoresSafeArea()
             VStack(spacing: 0) {
                 HeaderBar(title: "游戏登录", onBack: { selectedTab = 0 })
+                
+                // 消息提示
+                if manager.showMessage {
+                    MessageBanner(message: manager.message, type: manager.messageType)
+                        .padding(.top, 8)
+                }
+                
                 ScrollView {
                     VStack(spacing: 16) {
-                        // 独立Token输入区域
+                        // Token状态
+                        HStack {
+                            Circle().fill(manager.isLoggedIn || !inputToken.isEmpty ? Color.green : Color.red).frame(width: 8, height: 8)
+                            Text(manager.isLoggedIn || !inputToken.isEmpty ? "Token已就绪" : "未选择Token")
+                                .font(.caption).foregroundColor(.white.opacity(0.7))
+                            Spacer()
+                            if manager.isLoggedIn {
+                                Button("检测") {
+                                    manager.checkToken(manager.currentToken) { _ in }
+                                }.font(.caption).foregroundColor(.orange)
+                            }
+                        }
+                        .padding(.horizontal)
+                        
+                        // 独立Token开关
                         VStack(spacing: 12) {
                             Toggle("使用独立Token登录", isOn: $useIndependentToken).font(.subheadline).foregroundColor(.white)
                             if useIndependentToken {
@@ -510,7 +588,9 @@ struct GameLoginView: View {
                                     }.font(.caption).foregroundColor(.white).padding(.horizontal, 10).padding(.vertical, 14).background(Color.orange).cornerRadius(10)
                                 }
                             }
-                        }.padding().background(Color.white.opacity(0.05)).cornerRadius(16)
+                        }
+                        .padding()
+                        .background(Color.white.opacity(0.05)).cornerRadius(16)
                         
                         // 已储存Token选择
                         if !manager.tokenRecords.isEmpty && !useIndependentToken {
@@ -524,27 +604,43 @@ struct GameLoginView: View {
                                             Circle().fill(record.token == manager.currentToken ? Color.green : Color.clear).frame(width: 10, height: 10)
                                             Text(mask(record.token)).font(.caption).foregroundColor(.white)
                                             Spacer()
-                                            if record.token == manager.currentToken { Text("当前").font(.caption2).foregroundColor(.green) }
+                                            if record.token == manager.currentToken {
+                                                Text("当前").font(.caption2).foregroundColor(.green)
+                                            }
                                         }
                                         .padding(10).background(Color.white.opacity(0.05)).cornerRadius(8)
                                     }
                                 }
-                            }.padding().background(Color.white.opacity(0.05)).cornerRadius(16)
+                            }
+                            .padding().background(Color.white.opacity(0.05)).cornerRadius(16)
                         }
                         
-                        // 当前使用的Token
-                        HStack {
-                            Circle().fill(manager.isLoggedIn || !inputToken.isEmpty ? Color.green : Color.red).frame(width: 8, height: 8)
-                            Text(manager.isLoggedIn || !inputToken.isEmpty ? "Token已就绪" : "未选择Token").font(.caption).foregroundColor(.white.opacity(0.7))
-                            Spacer()
-                            if manager.isLoggedIn { Button("检测") { manager.checkToken(manager.currentToken) { _ in } }.font(.caption).foregroundColor(.orange) }
-                        }.padding(.horizontal)
-                        
-                        // 游戏登录卡片
+                        // 游戏登录卡片（直接传递 gameCode）
                         VStack(spacing: 12) {
-                            GameLoginCard(name: "三角洲行动", icon: "arrow.triangle.swap", color: Color(red: 1.0, green: 0.45, blue: 0.0), manager: manager, independentToken: useIndependentToken ? inputToken : nil)
-                            GameLoginCard(name: "暗区突围", icon: "shield.fill", color: Color(red: 0.9, green: 0.15, blue: 0.15), manager: manager, independentToken: useIndependentToken ? inputToken : nil)
-                            GameLoginCard(name: "和平精英", icon: "scope", color: Color(red: 0.1, green: 0.8, blue: 0.3), manager: manager, independentToken: useIndependentToken ? inputToken : nil)
+                            GameLoginCard(
+                                name: "三角洲行动",
+                                icon: "arrow.triangle.swap",
+                                color: Color(red: 1.0, green: 0.45, blue: 0.0),
+                                gameCode: "delta_force",
+                                manager: manager,
+                                independentToken: useIndependentToken ? inputToken : nil
+                            )
+                            GameLoginCard(
+                                name: "暗区突围",
+                                icon: "shield.fill",
+                                color: Color(red: 0.9, green: 0.15, blue: 0.15),
+                                gameCode: "dark_zone",
+                                manager: manager,
+                                independentToken: useIndependentToken ? inputToken : nil
+                            )
+                            GameLoginCard(
+                                name: "和平精英",
+                                icon: "scope",
+                                color: Color(red: 0.1, green: 0.8, blue: 0.3),
+                                gameCode: "peace_elite",
+                                manager: manager,
+                                independentToken: useIndependentToken ? inputToken : nil
+                            )
                         }
                         
                         // 登录记录
@@ -565,7 +661,8 @@ struct GameLoginView: View {
                                         }
                                     }.padding().background(Color.white.opacity(0.05)).cornerRadius(10)
                                 }
-                            }.padding().background(Color.white.opacity(0.03)).cornerRadius(16)
+                            }
+                            .padding().background(Color.white.opacity(0.03)).cornerRadius(16)
                         }
                     }.padding(16)
                 }
@@ -579,16 +676,19 @@ struct GameLoginView: View {
     }
 }
 
+// 游戏登录卡片（修复：直接传入gameCode）
 struct GameLoginCard: View {
     let name: String
     let icon: String
     let color: Color
+    let gameCode: String
     @ObservedObject var manager: GameLoginManager
     var independentToken: String?
     
     var body: some View {
         Button {
-            manager.loginGame(gameName: name, gameCode: name == "三角洲行动" ? "delta_force" : (name == "暗区突围" ? "dark_zone" : "peace_elite"), token: independentToken)
+            // 关键：调用登录方法
+            manager.loginGame(gameName: name, gameCode: gameCode, token: independentToken)
         } label: {
             HStack(spacing: 16) {
                 Image(systemName: icon).font(.system(size: 28)).foregroundColor(.white)
@@ -606,7 +706,7 @@ struct GameLoginCard: View {
     }
 }
 
-// MARK: - 提取Token页面 (新建)
+// MARK: - 提取Token页面
 struct ExtractTokenView: View {
     @Binding var selectedTab: Int
     @StateObject private var manager = GameLoginManager()
@@ -619,6 +719,12 @@ struct ExtractTokenView: View {
             Color(red: 0.08, green: 0.10, blue: 0.16).ignoresSafeArea()
             VStack(spacing: 0) {
                 HeaderBar(title: "提取Token", onBack: { selectedTab = 0 })
+                
+                if manager.showMessage {
+                    MessageBanner(message: manager.message, type: manager.messageType)
+                        .padding(.top, 8)
+                }
+                
                 ScrollView {
                     VStack(spacing: 20) {
                         VStack(spacing: 12) {
@@ -695,21 +801,18 @@ struct ExtractTokenView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         
-        // 尝试从JSON提取
         if let data = text.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let token = json["token"] as? String {
             extractedToken = token
             return
         }
-        // 尝试从URL参数提取
         if let url = URL(string: text),
            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let token = components.queryItems?.first(where: { $0.name == "token" })?.value {
             extractedToken = token
             return
         }
-        // 尝试直接作为Token
         if text.count > 10, !text.contains(" "), !text.contains("\n") {
             extractedToken = text
         } else {
