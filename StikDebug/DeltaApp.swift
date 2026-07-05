@@ -25,7 +25,6 @@ class GameLoginManager: ObservableObject {
     @Published var accounts: [GameAccount] = []
     @Published var tokenRecords: [TokenRecord] = []
 
-    // 顶部横幅控制
     @Published var bannerMessage: String = ""
     @Published var bannerType: BannerType = .info
     @Published var showBanner: Bool = false
@@ -52,7 +51,6 @@ class GameLoginManager: ObservableObject {
         }
     }
 
-    // 储存Token
     func saveToken(_ token: String, source: String = "手动输入") {
         guard !token.isEmpty else { return }
         if tokenRecords.contains(where: { $0.token == token }) {
@@ -95,7 +93,6 @@ class GameLoginManager: ObservableObject {
         showBannerMsg("所有Token已清空")
     }
 
-    // 检测Token
     func checkToken(_ token: String, completion: @escaping (Bool) -> Void) {
         showBannerMsg("正在检测...", type: .info)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -105,7 +102,6 @@ class GameLoginManager: ObservableObject {
         }
     }
 
-    // 唤起游戏并登录
     func launchGame(gameName: String, urlScheme: String, token: String? = nil) {
         let tokenToUse = token ?? currentToken
         guard !tokenToUse.isEmpty else {
@@ -113,7 +109,6 @@ class GameLoginManager: ObservableObject {
             return
         }
 
-        // 复制Token到剪贴板
         UIPasteboard.general.string = tokenToUse
 
         let urlString = "\(urlScheme)://login?token=\(tokenToUse)"
@@ -122,7 +117,6 @@ class GameLoginManager: ObservableObject {
             return
         }
 
-        // 调试：打印尝试的 URL
         print("尝试唤起：\(urlString)")
 
         if UIApplication.shared.canOpenURL(url) {
@@ -139,13 +133,11 @@ class GameLoginManager: ObservableObject {
                     self.accounts.append(newAccount)
                     self.saveAccounts()
                 } else {
-                    self.showBannerMsg("唤起\(gameName)失败，请检查安装或Scheme", type: .error)
+                    self.showBannerMsg("唤起\(gameName)失败", type: .error)
                 }
             }
         } else {
-            // 未安装
-            showBannerMsg("未安装\(gameName)或Scheme错误，请检查", type: .warning)
-            // 尝试记录
+            showBannerMsg("未安装\(gameName)或Scheme错误", type: .warning)
             let newAccount = GameAccount(
                 id: UUID().uuidString,
                 gameName: gameName,
@@ -159,7 +151,7 @@ class GameLoginManager: ObservableObject {
     }
 
     func oneClickLogin(token: String? = nil) {
-        launchGame(gameName: "三角洲行动", urlScheme: "deltaforce", token: token)
+        launchGame(gameName: "三角洲行动", urlScheme: "tencent100823541", token: token)
     }
 
     func copyAccountUID(_ uid: String) {
@@ -236,7 +228,7 @@ struct DeltaApp: App {
     }
 }
 
-// MARK: - 顶部横幅组件
+// MARK: - 顶部横幅
 struct TopBanner: View {
     let message: String
     let type: GameLoginManager.BannerType
@@ -550,17 +542,18 @@ struct TokenCard: View {
     }
 }
 
-// MARK: - 游戏登录页面（修复唤起 + 独立 Token）
+// MARK: - 游戏登录页面（三角洲行动已改为真实 Scheme）
 struct GameLoginView: View {
     @StateObject private var manager = GameLoginManager()
     @State private var inputToken = ""
     @State private var useIndependentToken = false
     @FocusState private var isTokenFocused: Bool
 
+    // 三角洲行动已使用真实 Scheme，其他游戏请自行替换
     private let games: [(name: String, icon: String, color: Color, scheme: String)] = [
-        ("三角洲行动", "arrow.triangle.swap", Color(red: 1.0, green: 0.45, blue: 0.0), "deltaforce"),
-        ("暗区突围", "shield.fill", Color(red: 0.9, green: 0.15, blue: 0.15), "darkzone"),
-        ("和平精英", "scope", Color(red: 0.1, green: 0.8, blue: 0.3), "pubgm")
+        ("三角洲行动", "arrow.triangle.swap", Color(red: 1.0, green: 0.45, blue: 0.0), "tencent100823541"),
+        ("暗区突围", "shield.fill", Color(red: 0.9, green: 0.15, blue: 0.15), "darkzone"), // 待替换
+        ("和平精英", "scope", Color(red: 0.1, green: 0.8, blue: 0.3), "pubgm")            // 待替换
     ]
 
     var body: some View {
