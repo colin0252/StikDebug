@@ -1,6 +1,32 @@
 import SwiftUI
 import UIKit
 
+// MARK: - 强制横屏包装器
+struct LandscapeViewController: UIViewControllerRepresentable {
+    let childView: AnyView
+    
+    init<Content: View>(_ content: Content) {
+        self.childView = AnyView(content)
+    }
+    
+    func makeUIViewController(context: Context) -> LandscapeHostingController {
+        let vc = LandscapeHostingController(rootView: childView)
+        return vc
+    }
+    
+    func updateUIViewController(_ uiViewController: LandscapeHostingController, context: Context) {}
+}
+
+class LandscapeHostingController: UIHostingController<AnyView> {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .landscape
+    }
+    
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        return .landscapeRight
+    }
+}
+
 // MARK: - 数据模型
 struct GameAccount: Identifiable, Codable {
     let id: String
@@ -93,7 +119,6 @@ class GameLoginManager: ObservableObject {
         showBannerMsg("所有Token已清空")
     }
 
-    // 修复：Token 长度必须 > 20 才算有效
     func checkToken(_ token: String, completion: @escaping (Bool) -> Void) {
         showBannerMsg("正在检测...", type: .info)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -107,35 +132,27 @@ class GameLoginManager: ObservableObject {
         }
     }
 
-    // 尝试唤起游戏，失败则提示手动
-    func launchGame(gameName: String, urlScheme: String? = nil, token: String? = nil) {
+    func launchGame(gameName: String, urlScheme: String?, token: String? = nil) {
         let tokenToUse = token ?? currentToken
         guard !tokenToUse.isEmpty else {
             showBannerMsg("请先输入或选择Token", type: .warning)
             return
         }
 
-        // 复制 Token
         UIPasteboard.general.string = tokenToUse
 
-        // 如果有可用 scheme，尝试直接唤起
-        if let scheme = urlScheme, let url = URL(string: "\(scheme)://") {
-            if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url) { success in
-                    if success {
-                        self.showBannerMsg("正在唤起\(gameName)...", type: .success)
-                    } else {
-                        self.showBannerMsg("唤起失败，请手动打开游戏并粘贴Token", type: .warning)
-                    }
+        if let scheme = urlScheme, !scheme.isEmpty, let url = URL(string: "\(scheme)://") {
+            UIApplication.shared.open(url, options: [:]) { success in
+                if success {
+                    self.showBannerMsg("正在唤起\(gameName)...", type: .success)
+                } else {
+                    self.showBannerMsg("自动唤起失败，请手动打开\(gameName)并粘贴Token", type: .warning)
                 }
-            } else {
-                self.showBannerMsg("未检测到游戏，请手动打开并粘贴Token", type: .info)
             }
         } else {
-            self.showBannerMsg("Token已复制，请手动打开\(gameName)并粘贴登录", type: .success)
+            showBannerMsg("Token已复制，请手动打开\(gameName)并粘贴登录", type: .success)
         }
 
-        // 记录操作
         let newAccount = GameAccount(
             id: UUID().uuidString,
             gameName: gameName,
@@ -165,7 +182,7 @@ class GameLoginManager: ObservableObject {
     func clearAllAccounts() {
         accounts.removeAll()
         saveAccounts()
-        showBannerMsg("所有记录已清空")
+        showBannerMsg("所有操作记录已清空")
     }
 
     private func saveAccounts() {
@@ -204,7 +221,6 @@ class GameLoginManager: ObservableObject {
         return "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=QQ_LOGIN&color=000&bgcolor=fff"
     }
 
-    // 模拟扫码（仅用于测试 UI）
     func simulateQRCodeScan() {
         let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         let token = "QQ_" + String((0..<32).map { _ in chars.randomElement()! })
@@ -215,6 +231,8 @@ class GameLoginManager: ObservableObject {
 // MARK: - App 入口
 @main
 struct DeltaApp: App {
+    @State private var showQRScanner = true
+    
     var body: some Scene {
         WindowGroup {
             NavigationView {
@@ -222,8 +240,159 @@ struct DeltaApp: App {
             }
             .navigationViewStyle(.stack)
             .ignoresSafeArea(.all)
+            .fullScreenCover(isPresented: $showQRScanner) {
+                QRCodeLandscapeView(isPresented: $showQRScanner)
+            }
         }
     }
+}
+
+// MARK: - 横屏扫码界面
+struct QRCodeLandscapeView: View {
+    @Binding var isPresented: Bool
+    @StateObject private var manager = GameLoginManager()
+    @State private var countdown = 120
+    @State private var expired = false
+    @State private var timer: Timer?
+    
+    var body: some View {
+        LandscapeViewController(
+            ZStack {
+                // 深色背景，模仿游戏
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 20) {
+                    // 顶部退出按钮
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            isPresented = false
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title)
+                                .foregroundColor(.white.opacity(0.6))
+                                .padding()
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    // 游戏图标与标题
+                    VStack(spacing: 8) {
+                        Image(systemName: "gamecontroller.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.white)
+                            .frame(width: 80, height: 80)
+                            .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                        
+                        Text("三角洲行动")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        
+                        Text("QQ账号授权登录")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    
+                    // 二维码区域（先空着）
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(Color.white)
+                            .frame(width: 200, height: 200)
+                        
+                        // 等待 AppID 的占位
+                        VStack(spacing: 12) {
+                            Image(systemName: "qrcode")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray)
+                            
+                            Text("等待配置 AppID")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        
+                        // 如果二维码已生成（未来可启用）
+                        if !manager.generateQRCodeURL().contains("QQ_LOGIN") {
+                            AsyncImage(url: URL(string: manager.generateQRCodeURL())) { image in
+                                image.resizable().scaledToFit().frame(width: 180, height: 180)
+                            } placeholder: {
+                                ProgressView()
+                            }
+                        }
+                        
+                        // 过期遮罩
+                        if expired {
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.black.opacity(0.7))
+                                .frame(width: 200, height: 200)
+                            
+                            VStack(spacing: 8) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 30))
+                                    .foregroundColor(.white)
+                                Text("已过期")
+                                    .font(.caption)
+                                    .foregroundColor(.white)
+                                Text("点击刷新")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                            .onTapGesture { refreshQRCode() }
+                        }
+                    }
+                    
+                    // 倒计时
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                        Text("有效期 \(String(format: "%02d:%02d", countdown/60, countdown%60))")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                    
+                    // 提示文字
+                    VStack(spacing: 6) {
+                        Text("请使用手机QQ扫描二维码")
+                            .font(.subheadline)
+                            .foregroundColor(.white)
+                        Text("扫描后 Token 将自动储存")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    
+                    Spacer()
+                    
+                    // 底部安全提示
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        Text("授权后仅获取游戏登录所需信息")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .padding(.bottom, 20)
+                }
+                .padding()
+            }
+        )
+        .ignoresSafeArea()
+        .onAppear { startTimer() }
+        .onDisappear { timer?.invalidate() }
+    }
+    
+    private func startTimer() {
+        countdown = 120; expired = false
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { t in
+            if countdown > 0 { countdown -= 1 } else { expired = true; t.invalidate() }
+        }
+    }
+    
+    private func refreshQRCode() { startTimer() }
 }
 
 // MARK: - 顶部横幅
@@ -340,7 +509,7 @@ struct HomeButtonContent: View {
     }
 }
 
-// MARK: - QQ 扫码页面（增加真实获取说明）
+// MARK: - QQ 扫码页面（竖屏备用）
 struct QRCodeView: View {
     @StateObject private var manager = GameLoginManager()
     @State private var countdown = 120
@@ -383,7 +552,6 @@ struct QRCodeView: View {
                             Text("有效期 \(String(format: "%02d:%02d", countdown/60, countdown%60))").font(.caption).foregroundColor(.orange)
                         }
 
-                        // 说明：如何获取真实 Token
                         VStack(alignment: .leading, spacing: 8) {
                             Text("💡 如何获取真实Token？").font(.caption).foregroundColor(.yellow)
                             Text("1. 需在 QQ 互联平台注册应用，获取 appid 并配置回调 URL。")
@@ -553,7 +721,7 @@ struct TokenCard: View {
     }
 }
 
-// MARK: - 游戏登录页面（增加说明与手动打开按钮）
+// MARK: - 游戏登录页面
 struct GameLoginView: View {
     @StateObject private var manager = GameLoginManager()
     @State private var inputToken = ""
@@ -562,8 +730,8 @@ struct GameLoginView: View {
 
     private let games: [(name: String, icon: String, color: Color, scheme: String?)] = [
         ("三角洲行动", "arrow.triangle.swap", Color(red: 1.0, green: 0.45, blue: 0.0), "dfmobile"),
-        ("暗区突围", "shield.fill", Color(red: 0.9, green: 0.15, blue: 0.15), nil),    // 暂无可用 Scheme
-        ("和平精英", "scope", Color(red: 0.1, green: 0.8, blue: 0.3), nil)              // 暂无可用 Scheme
+        ("暗区突围", "shield.fill", Color(red: 0.9, green: 0.15, blue: 0.15), "darkzone"),
+        ("和平精英", "scope", Color(red: 0.1, green: 0.8, blue: 0.3), "pubgm")
     ]
 
     var body: some View {
@@ -571,12 +739,11 @@ struct GameLoginView: View {
             Color(red: 0.08, green: 0.10, blue: 0.16).ignoresSafeArea()
             ScrollView {
                 VStack(spacing: 16) {
-                    // 操作说明卡片
                     VStack(alignment: .leading, spacing: 8) {
                         Text("📌 登录说明").font(.subheadline).foregroundColor(.yellow)
-                        Text("• 点击下方按钮将尝试直接唤起游戏并自动填入Token")
-                        Text("• 若无法自动唤起，Token 已复制到剪贴板，请手动打开游戏后粘贴")
-                        Text("• 建议在游戏登录界面点击“粘贴”完成登录")
+                        Text("• 点击按钮将尝试自动唤起游戏并复制Token")
+                        Text("• 若无法自动唤起，请手动打开游戏，在登录页粘贴Token")
+                        Text("• Token 已自动复制到系统剪贴板")
                     }
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.8))
@@ -633,7 +800,6 @@ struct GameLoginView: View {
                         .padding().background(Color.white.opacity(0.05)).cornerRadius(16)
                     }
 
-                    // 一键登录按钮（三角洲）
                     Button(action: {
                         manager.oneClickLogin(token: useIndependentToken ? inputToken : nil)
                     }) {
@@ -663,7 +829,7 @@ struct GameLoginView: View {
                                     .frame(width: 56, height: 56).background(game.color).clipShape(RoundedRectangle(cornerRadius: 14))
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(game.name).font(.headline).foregroundColor(.white)
-                                    Text(game.scheme != nil ? "尝试自动唤起" : "手动打开游戏并粘贴Token").font(.caption).foregroundColor(.white.opacity(0.5))
+                                    Text(game.scheme != nil ? "尝试自动唤起" : "手动打开游戏").font(.caption).foregroundColor(.white.opacity(0.5))
                                 }
                                 Spacer()
                                 Text(game.scheme != nil ? "🚀 唤起" : "📋 复制").font(.subheadline).fontWeight(.medium).foregroundColor(.white).padding(.horizontal, 20).padding(.vertical, 10).background(game.color).cornerRadius(8)
@@ -675,7 +841,11 @@ struct GameLoginView: View {
 
                     if !manager.accounts.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("操作记录").font(.subheadline).foregroundColor(.white.opacity(0.6))
+                            HStack {
+                                Text("操作记录").font(.subheadline).foregroundColor(.white.opacity(0.6))
+                                Spacer()
+                                Button("清空记录") { manager.clearAllAccounts() }.font(.caption).foregroundColor(.red)
+                            }
                             ForEach(manager.accounts) { acc in
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
