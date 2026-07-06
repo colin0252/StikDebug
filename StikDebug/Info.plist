@@ -30,7 +30,6 @@
 	</array>
 	<key>UIRequiresFullScreen</key>
 	<true/>
-	<!-- 支持所有方向（竖屏 + 横屏） -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -42,7 +41,6 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
-	<!-- 允许查询其他应用的 URL Scheme（用于唤起游戏） -->
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>dfmobile</string>
